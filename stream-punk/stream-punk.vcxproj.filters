@@ -1,2 +1,33 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" />
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="sp_main.cpp" />
+    <ClCompile Include="testFolly.cpp" />
+    <ClCompile Include="unit_test_vector_array_string.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_basic_type.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_deque_list_set_uset_flist_map_umap.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_ptr.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_scuffle.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="StreamPunk.hpp" />
+    <ClInclude Include="unit_test.hpp">
+      <Filter>unit_test</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="unit_test">
+      <UniqueIdentifier>{e64730be-abf2-4cf0-9455-fbb5525aba64}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
