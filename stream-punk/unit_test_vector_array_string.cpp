@@ -29,13 +29,13 @@ REG_TEST(test_vector_serialization) {
 
         // 验证写入大小
         size_t expected_size =
-            sizeof(detail::Sz) + // 空向量大小
-            sizeof(detail::Sz) + sizeof(int) * 5 + // ints
-            sizeof(detail::Sz) + sizeof(float) * 3 + // floats
-            sizeof(detail::Sz) + // strings大小
-            sizeof(detail::Sz) + 1 + // "a"
-            sizeof(detail::Sz) + 2 + // "bc"
-            sizeof(detail::Sz) + 3; // "def"
+            sizeof(Sz) + // 空向量大小
+            sizeof(Sz) + sizeof(int) * 5 + // ints
+            sizeof(Sz) + sizeof(float) * 3 + // floats
+            sizeof(Sz) + // strings大小
+            sizeof(Sz) + 1 + // "a"
+            sizeof(Sz) + 2 + // "bc"
+            sizeof(Sz) + 3; // "def"
         ck_assert_uint_eq(stream.str().size(), expected_size);
 
         // 反序列化验证
@@ -131,12 +131,12 @@ REG_TEST(test_array_serialization) {
         // 整数数组
         std::array<int, 3> ints = { 10, 20, 30 };
         o << ints;
-        expected_size += sizeof(int) * 3 + sizeof(detail::Sz);
+        expected_size += sizeof(int) * 3 + sizeof(Sz);
 
         // 浮点数数组
         std::array<float, 2> floats = { 1.5f, 2.5f };
         o << floats;
-        expected_size += sizeof(float) * 2 + sizeof(detail::Sz);
+        expected_size += sizeof(float) * 2 + sizeof(Sz);
 
         // 验证写入大小
         auto x = stream.str();                                                                                     
@@ -170,7 +170,7 @@ REG_TEST(test_array_serialization) {
         auto x = stream.str();
         size_t sz = x.size();
         // 验证写入大小
-        ck_assert_uint_eq(sz, large_array.size()+sizeof(detail::Sz));
+        ck_assert_uint_eq(sz, large_array.size()+sizeof(Sz));
 
         // 反序列化验证
         stream.seekg(0);
@@ -211,10 +211,10 @@ REG_TEST(test_string_serialization) {
 
         // 验证写入大小
         size_t expected_size =
-            sizeof(detail::Sz) + // empty
-            sizeof(detail::Sz) + ascii.size() + // ascii
-            sizeof(detail::Sz) + unicode.size() + // unicode
-            sizeof(detail::Sz) + long_str.size(); // long_str
+            sizeof(Sz) + // empty
+            sizeof(Sz) + ascii.size() + // ascii
+            sizeof(Sz) + unicode.size() + // unicode
+            sizeof(Sz) + long_str.size(); // long_str
         ck_assert_uint_eq(stream.str().size(), expected_size);
 
         // 反序列化验证
@@ -257,9 +257,9 @@ REG_TEST(test_string_serialization) {
 
         // 验证写入大小
         size_t expected_size =
-            sizeof(detail::Sz) + wstr.size() * sizeof(wchar_t) +
-            sizeof(detail::Sz) + u16str.size() * sizeof(char16_t) +
-            sizeof(detail::Sz) + u32str.size() * sizeof(char32_t);
+            sizeof(Sz) + wstr.size() * sizeof(wchar_t) +
+            sizeof(Sz) + u16str.size() * sizeof(char16_t) +
+            sizeof(Sz) + u32str.size() * sizeof(char32_t);
         ck_assert_uint_eq(stream.str().size(), expected_size);
 
         // 反序列化验证
@@ -295,8 +295,8 @@ REG_TEST(test_string_view_serialization) {
 
     // 验证写入大小
     size_t expected_size =
-        sizeof(detail::Sz) + full_view.size() + // full_view
-        sizeof(detail::Sz) + partial_view.size(); // partial_view
+        sizeof(Sz) + full_view.size() + // full_view
+        sizeof(Sz) + partial_view.size(); // partial_view
     ck_assert_uint_eq(stream.str().size(), expected_size);
 
     // 反序列化验证（string_view不可修改，所以反序列化为string）
@@ -323,16 +323,16 @@ REG_TEST(test_mixed_container_serialization) {
         {1, 2}, {3, 4}, {5, 6}
     };
     size_t vSz = 
-        sizeof(detail::Sz) +
+        sizeof(Sz) +
         vector_of_arrays.size() * sizeof(decltype(vector_of_arrays)::value_type)
     ;
     std::array<std::string, 2> array_of_strings = {
         "first", "second"
     };
     size_t aSz =
-        sizeof(detail::Sz) +
-        sizeof(detail::Sz) + array_of_strings[0].size() +
-        sizeof(detail::Sz) + array_of_strings[1].size();
+        sizeof(Sz) +
+        sizeof(Sz) + array_of_strings[0].size() +
+        sizeof(Sz) + array_of_strings[1].size();
 
     o << vector_of_arrays << array_of_strings;
 
@@ -363,10 +363,10 @@ REG_TEST(test_container_edge_cases) {
         O o(stream);
 
         // 创建超大容器（测试size_t序列化）
-        std::vector<char> large_vector(detail::Sz(1) << 20); // 1MB
+        std::vector<char> large_vector(Sz(1) << 20); // 1MB
         o << large_vector;
 
-        ck_assert_uint_eq(stream.str().size(), sizeof(detail::Sz) + large_vector.size());
+        ck_assert_uint_eq(stream.str().size(), sizeof(Sz) + large_vector.size());
     }
 
     // 2. 空容器
@@ -384,7 +384,7 @@ REG_TEST(test_container_edge_cases) {
 
         // 验证写入大小
         size_t expected_size =
-            sizeof(detail::Sz) * 4; // 每个容器写入一个size_t(0)
+            sizeof(Sz) * 4; // 每个容器写入一个size_t(0)
         ck_assert_uint_eq(stream.str().size(), expected_size);
 
         // 反序列化验证

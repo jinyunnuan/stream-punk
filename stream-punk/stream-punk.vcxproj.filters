@@ -18,16 +18,30 @@
     <ClCompile Include="unit_test_scuffle.cpp">
       <Filter>unit_test</Filter>
     </ClCompile>
+    <ClCompile Include="unit_test_typeid.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_custom_data.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_chrono.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="StreamPunk.hpp" />
     <ClInclude Include="unit_test.hpp">
       <Filter>unit_test</Filter>
     </ClInclude>
+    <ClInclude Include="customData.hpp" />
+    <ClInclude Include="Data.hpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="unit_test">
       <UniqueIdentifier>{e64730be-abf2-4cf0-9455-fbb5525aba64}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
   </ItemGroup>
 </Project>

@@ -427,7 +427,7 @@ REG_TEST(test_empty_container_serialization) {
 
     // 验证写入大小
     // 每个容器写入一个size_t(0)，bitset写入0字节（但先写入size=0）
-    size_t expected_size = sizeof(detail::Sz) * 8 + sizeof(u64); // 8个容器 * 每个容器一个大小字段
+    size_t expected_size = sizeof(Sz) * 8 + sizeof(u64); // 8个容器 * 每个容器一个大小字段
     ck_assert_uint_eq(stream.str().size(), expected_size);
 
     // 反序列化验证

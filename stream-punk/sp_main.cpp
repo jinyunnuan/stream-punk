@@ -6,6 +6,8 @@
 # include "StreamPunk.hpp"
 # include "unit_test.hpp"
 
+# include "Data.hpp"
+
 class LocaleInitializer {
 public:
     static void Initialize() {
@@ -33,6 +35,8 @@ static LocaleInitializer __locale_initializer;  // 头文件多次包含会有�
 #endif
 
 int main(void) {
+    INIT_StreamPunk();
+
     int number_failed;
 
     tcase_set_timeout(tc_core, 0);

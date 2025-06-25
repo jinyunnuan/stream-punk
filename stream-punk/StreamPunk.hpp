@@ -18,18 +18,53 @@
 # include <unordered_set>
 # include <bitset>
 # include <memory>
+
 # include <chrono>
 
 # include <algorithm>
 
 /*
-这个库叫流水账
-英文名:StreamPunk
-基础功能:
-    支持数据的序列化和反序列化
-基础功能对数据的态度是:
-    不管是什么类型的数据,你这个程序应当知道它是什么结构,只要你拥有数据定义的头文件你就应当知道.
+    这个库汉语名称: 流水账
+    英文名:StreamPunk
+
+    基础功能:
+        支持数据的序列化和反序列化
+
+    基础功能对数据的态度是:
+        不管是什么类型的数据, 只要你拥有数据定义的头文件, 你就应当知道它的数据结构.
+        而你所写的程序, 也应当知道序列化和反序列化的正确顺序
+
+    版本0.0.1:
+        完成了基础的类型支持.
+    版本0.0.2:
+        实现了容器的支持.
+    版本0.0.3:
+        指针类型的基本支持, 可以放入原始指针, Sptr, Uptr, Wptr.
+        存在的问题:
+            基类指针指向子类对象, 首次对该对象序列化时, 若放入的是基类指针, 对象只会被当做基类对象进行处理.
+            反序列化时,用父类指针去取出,对象就会被新建成父类对象. 从而出错.
+            解决方法:
+                给所有类型进行编号,只要是有可能被序列化的类型,都要有一个编号.
+                    序列化时,先将编号写入流中,然后再写入对象.
+                    反序列化时,如果编号对应的类型是子类,则将其转换为子类指针.
+                    这样就可以避免父类指针指向子类对象的问题.
+                但是,如果在序列化时,父类指针指向子类对象,该如何是好?
+                    所以,如果是自定义的struct/class,就要准备一个虚函数,获取当前类型.
+    版本0.0.4:
+        支持chrono
+            新建了StreamPunkTime类型128位数据保存时间,精度细至atto,时间跨度也足够.
+    版本0.0.5:
+        引入Base解决版本0.0.3存在的问题, 代价是所有需要用到这个库的类, 都要继承Base
 */
+# define VER_StreamPunk 0.0.4
+
+/*
+    这是用来注册自定义数据的头文件.
+    独立出来让用户写
+    只要项目能正确包含这个文件, 这个文件实际上放在哪个目录都随意.
+    所有自定义类型, 都要有默认构造函数.
+*/
+# include "customData.hpp"
 
 # define Xt_BasicType(X__) \
 X__(::std::uint8_t , u8 ) \
@@ -46,21 +81,35 @@ X__(char           , ch ) \
 X__(bool           , bl ) \
 
 # define Xt_Type(X__) \
-Xt_BasicType(X__)
+Xt_BasicType(X__) \
+Xt_CustomType(X__) \
 
 # define X_using(oldName, newName) using newName = oldName;
 Xt_BasicType(X_using);
 # undef X_using
 
+# define X_using_struct(oldName, newName) using newName = struct oldName;
+Xt_CustomType(X_using_struct);
+# undef X_using_struct
+
+// 表示长度的类型, 用来放入序列中
+using Sz = u32;
+
+using Imax = i64;
+using Umax = u64;
+
+/*
+用来放入流当中的指针类型 长度统一为64位
+对于32位系统来说会浪费4字节本地空间 但是对于64位系统不可或缺
+只考虑32位系统的数据使用,那可以改成u32,省点空间.
+*/
+using PtrValue = u64;
+
+template<typename T> using Sptr = std::shared_ptr<T>;
+template<typename T> using Wptr = std::weak_ptr  <T>;
+template<typename T> using Uptr = std::unique_ptr<T>;
+
 namespace detail {
-    using Ostr = ::std::ostream;
-    using Sz = u32;
-    using PtrValue = uint64_t;
-
-    template<typename T> using Sptr = std::shared_ptr<T>;
-    template<typename T> using Wptr = std::weak_ptr  <T>;
-    template<typename T> using Uptr = std::unique_ptr<T>;
-
     template <typename T> constexpr bool trivially_copyable =
         std::is_trivially_copyable_v<std::remove_cvref_t<T>>
         &&
@@ -68,31 +117,130 @@ namespace detail {
     ;
 } // namespace detail
 
-
 /*
     这个流对象会在序列化和反序列化时,存一些上下文数据
-    主要是为了避免重复序列化同一个指针,
-    以及在反序列化时,避免重复创建对象
+    主要是为了避免重复序列化同一个指针,以及在反序列化时,避免重复创建对象
+    使用时注意这一点.
 */
 struct O {
     std::ostream& s;
-    std::unordered_set<detail::PtrValue> ptrSet;
+    std::unordered_set<PtrValue> ptrSet;
 
     void clear() {
         ptrSet.clear();
     }
-}; // struct S
+}; // struct O
 
 struct I {
     std::istream& s;
-    std::unordered_map<detail::PtrValue, detail::Sptr<void>> sptrSet;
-    std::unordered_map<detail::PtrValue, void* > ptrSet;
+    std::unordered_map<PtrValue, Sptr<void>> sptrSet;
+    std::unordered_map<PtrValue, void* > ptrSet;
 
     void clear() {
         sptrSet.clear();
         ptrSet.clear();
     }
 }; // struct I
+
+
+// 编译时检测 是否开启RTTI
+#if defined(__GNUC__) || defined(__clang__)
+#define RTTI_ENABLED __GXX_RTTI
+#elif defined(_MSC_VER)
+#define RTTI_ENABLED _CPPRTTI
+#else
+    // 默认认为启用RTTI
+#define RTTI_ENABLED 1
+#endif
+
+# define X_enumMember( type, name, ...) name ,
+enum class E_type { e_unkonwType, Xt_BasicType(X_enumMember) e_basicType, Xt_CustomType(X_enumMember) e_customType, };
+# undef X_enumMember
+
+template<typename T> struct TypeID_t {
+    constexpr inline static Sz id = static_cast<Sz>(E_type::e_unkonwType);
+    constexpr inline static E_type kind = E_type::e_unkonwType;
+};
+# define X_DEF_TypeID_kind(type, newName, kind__) \
+template<>\
+struct TypeID_t<newName>{\
+    constexpr inline static Sz id = static_cast<Sz>(E_type::newName);\
+    constexpr inline static E_type kind = E_type::kind__;\
+};
+# define X_DEF_TypeID_basic(type,newName) X_DEF_TypeID_kind(type, newName, e_basicType);
+Xt_BasicType(X_DEF_TypeID_basic);
+# define X_DEF_TypeID_custom(type,newName) X_DEF_TypeID_kind(type, newName, e_customType);
+Xt_CustomType(X_DEF_TypeID_custom);
+
+# undef X_DEF_TypeID_custom
+# undef X_DEF_TypeID_basic
+# undef X_DEF_TypeID_kind
+
+constexpr static size_t customTypeBeginNum = static_cast<size_t>(E_type::e_basicType) + 1;
+constexpr static size_t customTypeNum = static_cast<size_t>(E_type::e_customType) - customTypeBeginNum;
+using PFN_VoidPtrCreator = void* (*)();
+inline std::array<PFN_VoidPtrCreator, customTypeNum> all_custom_creator_pfn;
+template<typename T> void* custom_create() { return new T{}; }
+# define X_reg_custom(type, name) all_custom_creator_pfn[TypeID_t<name>::id - customTypeBeginNum] = custom_create<name>;
+# define REG_StreamPunk_CustomType(Xt__) Xt__(X_reg_custom)
+/*
+    自定义类型的指针的反序列化,必须发生在初始化之后.
+    否则,为了消除声明依赖而设立的all_custom_creator_pfn还未被初始化.必然报错.
+*/
+# define INIT_StreamPunk() REG_StreamPunk_CustomType(Xt_CustomType)
+
+/*
+    自定义的类,必须直接或间接继承Base.
+    如果只关注基础数据的序列化与反序列化,
+    Base没有存在的必要.
+
+    自定义的类当中,有指针的存在,这不可避免.
+    本库在版本0.0.3对指针的初步支持,会有这样一个问题:
+        C继承于B B继承于A
+        A* c = new C();
+        o << c;
+        首次输出到流,如果是用基类指针,就被当基类对象处理.
+    为解决这个问题, 用上多态, 让所有自定义类,继承Base这个基类.
+*/
+struct Base {
+    Base() = default;
+    virtual ~Base() = default;
+    virtual Sz typeID() const = 0; // 返回类型ID
+    virtual void output(O& o) const {};
+    virtual void input (I& i) {};
+};
+inline O& operator<<(O& o, Base const& v) { v.output(o); return o; }
+inline I& operator>>(I& i, Base      & v) { v.input (i); return i; }
+
+# define X_classMember(type__, name__    , ...) type__ name__ = __VA_ARGS__;
+# define DEC_MemberEnum(name__, Xt__, ...) enum name__{ Xt__(X_enumClassMember) e_maxCount };
+# define X_enumClassMember(     type__, name__    , ...) e_##name__,
+# define X_class_DH_member_copy_v_(type__, name__, ...) , name__(v_.name__)
+# define X_class_DH_member_move_v_(type__, name__, ...) , name__(std::move(v_.name__))
+# define X_class_DH_member_assign_v_(type__, name__, ...) name__ = v_.name__;
+# define X_class_DH_member_move_assign_v_(type__, name__, ...) name__ = std::move(v_.name__);
+# define X_leftShiftName(type__, name__, ...) << name__
+# define X_rightShiftName(type__, name__, ...) >> name__
+
+# define UseDataXtBase(TypeName__, Xt__, Base__) \
+DEC_MemberEnum(E_idx, Xt__); \
+Xt__(X_classMember); \
+\
+Sz typeID() const override { return TypeID_t<TypeName__>::id; } \
+TypeName__(TypeName__ const& v_) noexcept :Base__{} Xt__(X_class_DH_member_copy_v_) { } \
+TypeName__(TypeName__&&      v_) noexcept :Base__{} Xt__(X_class_DH_member_move_v_) { } \
+TypeName__& operator=(TypeName__ const& v_) noexcept { Xt__(X_class_DH_member_assign_v_); return *this; } \
+TypeName__& operator=(TypeName__&& v_) noexcept { Xt__(X_class_DH_member_move_assign_v_); return *this; } \
+\
+void output(O& o) const override { Base__::output(o); o Xt__(X_leftShiftName); } \
+void input(I& i) override { Base__::input(i); i Xt__(X_rightShiftName); }
+
+
+# define UseDataXt(TypeName__, Xt__) UseDataXtBase(TypeName__, Xt__, Base)
+# define UseDataBase(TypeName__, Base__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base__)
+# define UseData(TypeName__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base)
+
+
 
 /* =======================  实现各类数据二进制输入输出 ===================== */
 
@@ -123,6 +271,95 @@ inline I& operator>>(I& s,       f64& v) { s.s.read(reinterpret_cast<char*>(&v),
 inline I& operator>>(I& s,       ch & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
 inline I& operator>>(I& s,       bl & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
 
+    /* ======================= chrono的输入输出 ===================== */
+struct StreamPunkTime {
+    using AttoSec = std::chrono::duration<i64, std::atto>;
+
+    i64 sec;
+    i64 attoSec;
+
+    template<typename Rep, typename Period>
+    void set(std::chrono::duration<Rep, Period>const& v) {
+        using namespace std::chrono;
+        // 整数秒部分（向零取整）
+        auto sec_part = duration_cast<seconds>(v);
+        sec = sec_part.count();
+        // 剩余不足1秒的部分
+        auto rem = v - sec_part;
+
+        // 统一使用精确的整数转换
+        attoSec = duration_cast<AttoSec>(rem).count();
+    }
+
+    template<typename Rep, typename Period>
+    void get(std::chrono::duration<Rep, Period>& v) const {
+        using TargetDuration = std::chrono::duration<Rep, Period>;
+        auto secs_as_target = std::chrono::duration_cast<TargetDuration>(std::chrono::seconds(sec));
+        v = secs_as_target;
+        // 如果存储类型是整数 并且目标单位粒度 粗于秒 则不必计算
+        if constexpr (std::is_integral_v<Rep> && std::ratio_greater<Period, std::ratio<1>>::value) {
+            return;
+        }
+        // 如果存储类型是整数 但目标单位粒度小于秒, 则截断计算.
+        else if constexpr (std::is_integral_v<Rep>) {
+            auto attos_as_tartget = std::chrono::duration_cast<TargetDuration>(AttoSec(attoSec));
+            v += attos_as_tartget;
+        }
+        // 如果存储类型是浮点数, 则四舍五入计算
+        else {
+            // 计算目标单位与秒的比例
+            constexpr double target_period = static_cast<double>(Period::num) / Period::den;
+            constexpr double ratio = target_period > 1e-18 ? (1e-18 / target_period) : 0;
+            // 整数类型：四舍五入处理
+            double value_in_target_units = static_cast<double>(attoSec) * ratio;
+            Rep rounded_value = static_cast<Rep>(value_in_target_units);
+
+            // 处理边界情况：当值太小导致计算为0但不应忽略的情况
+            if (rounded_value == 0 && attoSec > 0 && value_in_target_units > 0) {
+                rounded_value = 1; // 最小有效值
+            }
+            else if (rounded_value == 0 && attoSec < 0 && value_in_target_units < 0) {
+                rounded_value = -1; // 最小有效值
+            }
+            v += TargetDuration(rounded_value);
+        }
+    }
+};
+
+inline O& operator<<(O& o, StreamPunkTime const& v) { o << v.sec << v.attoSec; return o; }
+inline I& operator>>(I& i, StreamPunkTime&       v) { i >> v.sec >> v.attoSec; return i; }
+
+template<typename Rep, typename Period>
+inline O& operator<<(O& o, std::chrono::duration<Rep, Period>const& v) {
+    StreamPunkTime spTime;
+    spTime.set(v);
+    o << spTime;
+    return o;
+}
+template<typename Rep, typename Period>
+inline I& operator>>(I& i, std::chrono::duration<Rep, Period>& v) {
+    StreamPunkTime spTime;
+    i >> spTime;
+    spTime.get(v);
+    return i;
+}
+
+/*
+    std::chrono::system_clock	​C++20起标准强制一致​：UNIX时间纪元（1970-01-01 00:00 UTC）
+    std::chrono::steady_clock	​平台和实现相关​：一般以系统启动时间为起点
+*/
+template<typename Clock, typename Duration>
+inline O& operator<<(O& o, std::chrono::time_point<Clock, Duration>const& tp) {
+    o << tp.time_since_epoch(); return o;
+}
+template<typename Clock, typename Duration>
+inline I& operator>>(I& i, std::chrono::time_point<Clock, Duration>& tp) {
+    Duration dur;
+    i >> dur;
+    tp = std::chrono::time_point<Clock, Duration>(dur);
+    return i;
+}
+
     /* ======================= 连续空间输入输出 ===================== */
 namespace detail {
     template <typename T> struct is_std_array : std::false_type {};
@@ -134,7 +371,7 @@ namespace detail {
         if constexpr (trivially_copyable<ValueType>) {
             /*
                 如果 ValueType 是平凡可拷贝的类型，直接使用二进制写入
-                然而会引来一个问题:如果ValueType是std::array,尺寸是固定已知的,
+                然而会引来一个问题:如果ValueType是std::array,尺寸是固定已知的,所以它被序列化时,会被当作一个整体来处理,就不会先写入长度.
             */
             o.s.write(reinterpret_cast<char const*>(v.data()), sizeof(ValueType) * v.size());
         }
@@ -173,6 +410,20 @@ template<typename T, typename...Args> inline O& operator<<(O& o, std::basic_stri
 template<typename T> inline O& operator<<(O& o, std::basic_string_view<T> const& v) {
     detail::writeSpan<T>(o, v); return o;
 }
+template<size_t N> inline O& operator<<(O& o, std::bitset<N>const& v) {
+    Sz sz = N;
+    o << sz;
+    if (sz <= 64) {
+        Umax n = v.to_ullong();
+        o.s.write(reinterpret_cast<char const*>(&n), sizeof(n));
+    }
+    else {
+        // 超过64位的bitset，使用字符串表示
+        std::string n = v.to_string();
+        o.s.write(n.data(), n.size());
+    }
+    return o;
+}
 
 template<typename T, typename...Args> inline I& operator>>(I& i, std::vector<T, Args...>& v) {
     detail::readSpan<T>(i, v); return i;
@@ -186,18 +437,35 @@ template<typename T, typename...Args> inline I& operator>>(I& i, std::basic_stri
 template<typename T                 > inline I& operator>>(I& i, std::basic_string_view<T>& v) {
     detail::readSpan<T>(i, v); return i;
 }
+template<size_t   N> inline I& operator>>(I& i, std::bitset<N>& v) {
+    Sz sz;
+    i >> sz;
+    if (sz <= 64) {
+        Umax n;
+        i.s.read(reinterpret_cast<char*>(&n), sizeof(n));
+        v = std::bitset<N>(n);
+    }
+    else {
+        // 超过64位的bitset，使用字符串表示
+        std::string str(sz, '0');
+        i.s.read(str.data(), sz);
+        v = std::bitset<N>(str);
+    }
+    return i;
+}
+
 
     /* ======================= 不连续的容器类型 ===================== */
 namespace detail {
     template<typename ValueType, typename T> inline void write(O& o, T const& v) {
-        Sz sz = v.size();
+        Sz sz = static_cast<Sz>(v.size());
         o << sz;
         for (auto&& x : v) {
             o << x;
         }
     }
     template<typename T> inline void writeMap(O& o, T const& v) {
-        Sz sz = v.size();
+        Sz sz = static_cast<Sz>(v.size());
         o << sz;
         for (auto&& x : v) {
             o << x.first << x.second;
@@ -218,7 +486,7 @@ template<typename T, typename... Args>             inline O& operator<<(O& o, st
     detail::write<T>(o, v); return o;
 }
 template<typename T, typename... Args>             inline O& operator<<(O& o, std::forward_list <T,     Args...>const& v) {
-    detail::Sz sz = 0;
+    Sz sz = 0;
     for (auto&& x : v) {
         ++sz;
     }
@@ -233,20 +501,6 @@ template<typename K, typename V, typename... Args> inline O& operator<<(O& o, st
 }
 template<typename K, typename V, typename... Args> inline O& operator<<(O& o, std::unordered_map<K, V,  Args...>const& v) {
     detail::writeMap(o, v); return o;
-}
-template<size_t N> inline O& operator<<(O& o, std::bitset<N>const& v) {
-    detail::Sz sz = N;
-    o << sz;
-    if (sz <= 64) {
-        u64 n = v.to_ullong();
-        o.s.write(reinterpret_cast<char const*>(&n), sizeof(n));
-    }
-    else {
-        // 超过64位的bitset，使用字符串表示
-        std::string n = v.to_string();
-        o.s.write(n.data(), n.size());
-    }
-    return o;
 }
 
 namespace detail {
@@ -291,7 +545,7 @@ template<typename T, typename... Args> inline I& operator>>(I& i, std::unordered
     detail::readSet(i, v); return i;
 }
 template<typename T, typename... Args> inline I& operator>>(I& i, std::forward_list <T, Args...>& v) {
-    detail::Sz sz;
+    Sz sz;
     i >> sz;
     for (size_t j = 0; j < sz; ++j) {
         T temp{};
@@ -307,32 +561,59 @@ template<typename K, typename V, typename... Args> inline I& operator>>(I& i, st
 template<typename K, typename V, typename... Args> inline I& operator>>(I& i, std::unordered_map<K, V, Args...>& v) {
     detail::readMap(i, v); return i;
 }
-template<size_t   N> inline I& operator>>(I& i, std::bitset<N>& v) {
-    detail::Sz sz;
-    i >> sz;
-    if (sz <= 64) {
-        u64 n;
-        i.s.read(reinterpret_cast<char*>(&n), sizeof(n));
-        v = std::bitset<N>(n);
-    }
-    else {
-        // 超过64位的bitset，使用字符串表示
-        std::string str(sz, '0');
-        i.s.read(str.data(), sz);
-        v = std::bitset<N>(str);
-    }
-    return i;
-}
 
     /* ======================= 指针类型 ===================== */
+/*
+潜在Bug:
+    当对象被释放之后,该空间可能会被复用,成为其他新建的对象的空间.
+    这个情况下,将新的对象再放入流,就不会对新建的对象实际输出,从而造成反序列化时读取数据发生错误.
+*/
+namespace detail {
+    template<typename T> inline void createEmtpyObj(I& i, T*& v){
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType) {
+            Sz typeID;
+            i >> typeID;
+            // 检查typeID是否有效
+            if (typeID >= all_custom_creator_pfn.size() || all_custom_creator_pfn[typeID] == nullptr) {
+                std::stringstream ss;
+                ss << "i >> typeID : Invalid typeID " << typeID << ". Valid range: 0-" << (all_custom_creator_pfn.size() - 1);
+                throw std::runtime_error(ss.str());
+            }
+            void* voidPtr = all_custom_creator_pfn[typeID]();
+        # if (RTTI_ENABLED)
+            v = dynamic_cast<T*>(voidPtr);
+            if (v == nullptr) {
+                std::string expectedName = typeid(T).name();
+                std::string actualName = typeid(*static_cast<Base*>(voidPtr)).name();
+                delete static_cast<Base*>(voidPtr);
+                std::stringstream ss;
+                ss << "i >> typeID : Type mismatch! "
+                    << "Expected: " << expectedName << " (ID: " << TypeID_t<T>::id << "), "
+                    << "Actual: " << actualName << " (ID: " << typeID << ")";
+                throw std::runtime_error(ss.str());
+            }
+        # else
+            // 没有RTTI 只能强转 该如何判断它是否能赋值给该类型指针 假设全是单继承, 没有RTTI如何判断子类与基类关系?
+            v = reinterpret_cast<T*>(voidPtr);
+        # endif
+        }
+        else {
+            v = new T{};
+        }
+    }
+}   // namespace detail
+
 template<typename T> inline O& operator<<(O& o, T const* const v) {
-    auto const p = reinterpret_cast<detail::PtrValue>(v);
+    auto const p = reinterpret_cast<PtrValue>(v);
     o << p;
     if (v == nullptr) {
         return o;
     }
     if (o.ptrSet.find(p) == o.ptrSet.end()) {
         o.ptrSet.emplace(p);
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType) {
+            o << v->typeID();
+        }
         o << (*v);
         # if _DEBUG
         std::cout << "output Pointer: " << std::showbase << std::uppercase << std::hex << p << std::endl;
@@ -340,12 +621,12 @@ template<typename T> inline O& operator<<(O& o, T const* const v) {
     }
     return o;
 }
-template<typename T> inline O& operator<<(O& o, detail::Sptr<T>const& v) { o << v.get(); return o; }
-template<typename T> inline O& operator<<(O& o, detail::Wptr<T>const& v) { o << v.lock().get(); return o; }
-template<typename T> inline O& operator<<(O& o, detail::Uptr<T>const& v) { o << v.get(); return o; }
+template<typename T> inline O& operator<<(O& o, Sptr<T>const& v) { o << v.get(); return o; }
+template<typename T> inline O& operator<<(O& o, Wptr<T>const& v) { o << v.lock().get(); return o; }
+template<typename T> inline O& operator<<(O& o, Uptr<T>const& v) { o << v.get(); return o; }
 
 template<typename T> inline I& operator>>(I& i, T*& v) {
-    detail::PtrValue p = 0;
+    PtrValue p = 0;
     i >> p;
     if ( (void*)p == nullptr) {
         v = nullptr;
@@ -361,13 +642,13 @@ template<typename T> inline I& operator>>(I& i, T*& v) {
         v = reinterpret_cast<T*>(sptrIter->second.get());
         return i;
     }
-    v = new T{};
+    detail::createEmtpyObj(i, v);
     i >> (*v);
     i.ptrSet.emplace(p, v);
     return i;
 }
-template<typename T> inline I& operator>>(I& i, detail::Sptr<T>& v) {
-    detail::PtrValue p = 0;
+template<typename T> inline I& operator>>(I& i, Sptr<T>& v) {
+    PtrValue p = 0;
     i >> p;
     if (p == 0) {
         v.reset();
@@ -386,15 +667,16 @@ template<typename T> inline I& operator>>(I& i, detail::Sptr<T>& v) {
         v.reset((T*)(ptrIter->second));
         return i;
     }
-    auto ptr = new T{};
+    T* ptr = nullptr;
+    detail::createEmtpyObj(i, ptr);
+    //auto ptr = new T{};
     v.reset(ptr);
     i.sptrSet.emplace(p, v);
     i >> *ptr;
     return i;
 }
-
-template<typename T> inline I& operator>>(I& i, detail::Wptr<T>& v) {
-    detail::PtrValue p;
+template<typename T> inline I& operator>>(I& i, Wptr<T>& v) {
+    PtrValue p;
     i >> p;
     v.reset();
     if (p == 0) {
@@ -407,21 +689,19 @@ template<typename T> inline I& operator>>(I& i, detail::Wptr<T>& v) {
     }
     auto ptrIter = i.ptrSet.find(p);
     if (ptrIter != i.ptrSet.end()) {
-        /*
-            父类指针指向子类的对象, 先放入到流当中,
-            反序列化时,用父类指针去取出,对象就会被新建成父类对象. 从而出错.
-        */
-        detail::Sptr<T> sptr(reinterpret_cast<T*>(ptrIter->second));
+        Sptr<T> sptr(reinterpret_cast<T*>(ptrIter->second));
         i.sptrSet.emplace(p, sptr);
         v = sptr;
         return i;
     }
-    detail::Sptr<T> sptr(new T{});
+    T* ptr = nullptr;
+    detail::createEmtpyObj(i, ptr);
+    Sptr<T> sptr(ptr);
     i >> *sptr;
     v = sptr;
     i.sptrSet.emplace(p, std::move(sptr));
     return i;
 }
-template<typename T> inline I& operator>>(I& i, detail::Uptr<T>& v) { T* p{}; i >> p; v.reset(p); return i; }
+template<typename T> inline I& operator>>(I& i, Uptr<T>& v) { T* p{}; i >> p; v.reset(p); return i; }
 
 

@@ -31,6 +31,7 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -38,12 +39,14 @@
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
+    <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -51,6 +54,7 @@
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
+    <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -138,14 +142,22 @@
     <ClCompile Include="sp_main.cpp" />
     <ClCompile Include="testFolly.cpp" />
     <ClCompile Include="unit_test_basic_type.cpp" />
+    <ClCompile Include="unit_test_chrono.cpp" />
+    <ClCompile Include="unit_test_custom_data.cpp" />
     <ClCompile Include="unit_test_deque_list_set_uset_flist_map_umap.cpp" />
     <ClCompile Include="unit_test_ptr.cpp" />
     <ClCompile Include="unit_test_scuffle.cpp" />
+    <ClCompile Include="unit_test_typeid.cpp" />
     <ClCompile Include="unit_test_vector_array_string.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="customData.hpp" />
+    <ClInclude Include="Data.hpp" />
     <ClInclude Include="StreamPunk.hpp" />
     <ClInclude Include="unit_test.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
