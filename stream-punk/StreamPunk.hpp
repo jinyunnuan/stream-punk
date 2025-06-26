@@ -29,11 +29,10 @@
 
     基础功能:
         支持数据的序列化和反序列化
-
     基础功能对数据的态度是:
-        不管是什么类型的数据, 只要你拥有数据定义的头文件, 你就应当知道它的数据结构.
+        1.不管是什么类型的数据, 只要你拥有数据定义的头文件, 你就应当知道它的数据结构.
         而你所写的程序, 也应当知道序列化和反序列化的正确顺序
-
+        2.没考虑过private
     版本0.0.1:
         完成了基础的类型支持.
     版本0.0.2:
@@ -55,6 +54,10 @@
             新建了StreamPunkTime类型128位数据保存时间,精度细至atto,时间跨度也足够.
     版本0.0.5:
         引入Base解决版本0.0.3存在的问题, 代价是所有需要用到这个库的类, 都要继承Base
+
+    待办:
+        需要支持深拷贝吗?
+        需要让它被json拉低身份吗?
 */
 # define VER_StreamPunk 0.0.4
 
@@ -109,14 +112,6 @@ template<typename T> using Sptr = std::shared_ptr<T>;
 template<typename T> using Wptr = std::weak_ptr  <T>;
 template<typename T> using Uptr = std::unique_ptr<T>;
 
-namespace detail {
-    template <typename T> constexpr bool trivially_copyable =
-        std::is_trivially_copyable_v<std::remove_cvref_t<T>>
-        &&
-        !std::is_pointer_v<std::remove_cvref_t<T>>
-    ;
-} // namespace detail
-
 /*
     这个流对象会在序列化和反序列化时,存一些上下文数据
     主要是为了避免重复序列化同一个指针,以及在反序列化时,避免重复创建对象
@@ -142,6 +137,27 @@ struct I {
     }
 }; // struct I
 
+/*
+    自定义的类,必须直接或间接继承Base.
+    如果只关注基础数据的序列化与反序列化,
+    Base没有存在的必要.
+    自定义的类当中,有指针的存在,这不可避免.
+    本库在版本0.0.3对指针的初步支持,会有这样一个问题:
+        C继承于B B继承于A
+        A* c = new C();
+        o << c;
+        首次输出到流,如果是用基类指针,就被当基类对象处理.
+    为解决这个问题, 用上多态, 让所有自定义类,继承Base这个基类.
+*/
+struct Base {
+    Base() = default;
+    virtual ~Base() = default;
+    virtual Sz typeID() const = 0; // 返回类型ID
+    virtual void output(O& o) const {};
+    virtual void input(I& i) {};
+};
+inline O& operator<<(O& o, Base const& v) { v.output(o); return o; }
+inline I& operator>>(I& i, Base& v) { v.input(i); return i; }
 
 // 编译时检测 是否开启RTTI
 #if defined(__GNUC__) || defined(__clang__)
@@ -172,6 +188,8 @@ Xt_BasicType(X_DEF_TypeID_basic);
 # define X_DEF_TypeID_custom(type,newName) X_DEF_TypeID_kind(type, newName, e_customType);
 Xt_CustomType(X_DEF_TypeID_custom);
 
+
+
 # undef X_DEF_TypeID_custom
 # undef X_DEF_TypeID_basic
 # undef X_DEF_TypeID_kind
@@ -189,58 +207,38 @@ template<typename T> void* custom_create() { return new T{}; }
 */
 # define INIT_StreamPunk() REG_StreamPunk_CustomType(Xt_CustomType)
 
-/*
-    自定义的类,必须直接或间接继承Base.
-    如果只关注基础数据的序列化与反序列化,
-    Base没有存在的必要.
 
-    自定义的类当中,有指针的存在,这不可避免.
-    本库在版本0.0.3对指针的初步支持,会有这样一个问题:
-        C继承于B B继承于A
-        A* c = new C();
-        o << c;
-        首次输出到流,如果是用基类指针,就被当基类对象处理.
-    为解决这个问题, 用上多态, 让所有自定义类,继承Base这个基类.
-*/
-struct Base {
-    Base() = default;
-    virtual ~Base() = default;
-    virtual Sz typeID() const = 0; // 返回类型ID
-    virtual void output(O& o) const {};
-    virtual void input (I& i) {};
-};
-inline O& operator<<(O& o, Base const& v) { v.output(o); return o; }
-inline I& operator>>(I& i, Base      & v) { v.input (i); return i; }
+# define NONE(...) 
+# define DH ,
 
 # define X_classMember(type__, name__    , ...) type__ name__ = __VA_ARGS__;
 # define DEC_MemberEnum(name__, Xt__, ...) enum name__{ Xt__(X_enumClassMember) e_maxCount };
 # define X_enumClassMember(     type__, name__    , ...) e_##name__,
-# define X_class_DH_member_copy_v_(type__, name__, ...) , name__(v_.name__)
-# define X_class_DH_member_move_v_(type__, name__, ...) , name__(std::move(v_.name__))
-# define X_class_DH_member_assign_v_(type__, name__, ...) name__ = v_.name__;
-# define X_class_DH_member_move_assign_v_(type__, name__, ...) name__ = std::move(v_.name__);
 # define X_leftShiftName(type__, name__, ...) << name__
 # define X_rightShiftName(type__, name__, ...) >> name__
+//# define X_class_DH_member_copy_v_(type__, name__, ...) , name__(v_.name__)
+//# define X_class_DH_member_move_v_(type__, name__, ...) , name__(std::move(v_.name__))
+//# define X_class_DH_member_assign_v_(type__, name__, ...) name__ = v_.name__;
+//# define X_class_DH_member_move_assign_v_(type__, name__, ...) name__ = std::move(v_.name__);
 
 # define UseDataXtBase(TypeName__, Xt__, Base__) \
 DEC_MemberEnum(E_idx, Xt__); \
 Xt__(X_classMember); \
-\
 Sz typeID() const override { return TypeID_t<TypeName__>::id; } \
-TypeName__(TypeName__ const& v_) noexcept :Base__{} Xt__(X_class_DH_member_copy_v_) { } \
-TypeName__(TypeName__&&      v_) noexcept :Base__{} Xt__(X_class_DH_member_move_v_) { } \
-TypeName__& operator=(TypeName__ const& v_) noexcept { Xt__(X_class_DH_member_assign_v_); return *this; } \
-TypeName__& operator=(TypeName__&& v_) noexcept { Xt__(X_class_DH_member_move_assign_v_); return *this; } \
-\
 void output(O& o) const override { Base__::output(o); o Xt__(X_leftShiftName); } \
 void input(I& i) override { Base__::input(i); i Xt__(X_rightShiftName); }
-
 
 # define UseDataXt(TypeName__, Xt__) UseDataXtBase(TypeName__, Xt__, Base)
 # define UseDataBase(TypeName__, Base__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base__)
 # define UseData(TypeName__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base)
 
-
+namespace detail {
+    template <typename T> constexpr bool trivially_copyable =
+        std::is_trivially_copyable_v<std::remove_cvref_t<T>>
+        &&
+        !std::is_pointer_v<std::remove_cvref_t<T>>
+        ;
+} // namespace detail
 
 /* =======================  实现各类数据二进制输入输出 ===================== */
 
@@ -570,18 +568,20 @@ template<typename K, typename V, typename... Args> inline I& operator>>(I& i, st
 */
 namespace detail {
     template<typename T> inline void createEmtpyObj(I& i, T*& v){
-        if constexpr (TypeID_t<T>::kind == E_type::e_customType) {
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T, Base>) {
             Sz typeID;
             i >> typeID;
+            size_t creatorPfnIdx = typeID - (static_cast<size_t>(E_type::e_basicType) + 1);
             // 检查typeID是否有效
-            if (typeID >= all_custom_creator_pfn.size() || all_custom_creator_pfn[typeID] == nullptr) {
+            if (creatorPfnIdx >= all_custom_creator_pfn.size() || all_custom_creator_pfn[creatorPfnIdx] == nullptr) {
                 std::stringstream ss;
                 ss << "i >> typeID : Invalid typeID " << typeID << ". Valid range: 0-" << (all_custom_creator_pfn.size() - 1);
                 throw std::runtime_error(ss.str());
             }
-            void* voidPtr = all_custom_creator_pfn[typeID]();
+            void* voidPtr = all_custom_creator_pfn[creatorPfnIdx]();
         # if (RTTI_ENABLED)
-            v = dynamic_cast<T*>(voidPtr);
+            Base* basePtr = static_cast<Base*>(voidPtr);
+            v = dynamic_cast<T*>(basePtr);
             if (v == nullptr) {
                 std::string expectedName = typeid(T).name();
                 std::string actualName = typeid(*static_cast<Base*>(voidPtr)).name();

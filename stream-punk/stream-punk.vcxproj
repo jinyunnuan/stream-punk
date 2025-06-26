@@ -82,6 +82,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -98,6 +99,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -114,6 +116,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -130,6 +133,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -140,12 +144,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="sp_main.cpp" />
-    <ClCompile Include="testFolly.cpp" />
     <ClCompile Include="unit_test_basic_type.cpp" />
     <ClCompile Include="unit_test_chrono.cpp" />
     <ClCompile Include="unit_test_custom_data.cpp" />
     <ClCompile Include="unit_test_deque_list_set_uset_flist_map_umap.cpp" />
     <ClCompile Include="unit_test_ptr.cpp" />
+    <ClCompile Include="unit_test_ptr_for0.0.5.cpp" />
     <ClCompile Include="unit_test_scuffle.cpp" />
     <ClCompile Include="unit_test_typeid.cpp" />
     <ClCompile Include="unit_test_vector_array_string.cpp" />

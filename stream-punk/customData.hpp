@@ -6,5 +6,14 @@
 # define Xt_CustomType(X__) \
 X__(Test , Test) \
 X__(MQTT , MQTT) \
+X__(PointerDemo, PointerDemo) \
+X__(ContainerDemo, ContainerDemo) \
+X__(NetworkSystem, NetworkSystem) \
+X__(Device, Device) \
+X__(NetworkDevice, NetworkDevice) \
+X__(Sensor,Sensor) \
+X__(TemperatureSensor,TemperatureSensor) \
+X__(SmartHomeSystem,SmartHomeSystem) \
+X__(MultiLevelContainer,MultiLevelContainer) \
 
 
