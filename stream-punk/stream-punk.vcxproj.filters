@@ -29,6 +29,15 @@
     <ClCompile Include="unit_test_ptr_for0.0.5.cpp">
       <Filter>unit_test</Filter>
     </ClCompile>
+    <ClCompile Include="unit_test_v0.0.6.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_v0.0.7.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
+    <ClCompile Include="unit_test_v0.0.8.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="StreamPunk.hpp" />

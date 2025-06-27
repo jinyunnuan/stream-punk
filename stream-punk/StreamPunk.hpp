@@ -21,6 +21,12 @@
 
 # include <chrono>
 
+# include <any>
+# include <atomic>
+# include <variant>
+# include <optional>
+# include <filesystem>
+
 # include <algorithm>
 
 /*
@@ -42,24 +48,64 @@
         存在的问题:
             基类指针指向子类对象, 首次对该对象序列化时, 若放入的是基类指针, 对象只会被当做基类对象进行处理.
             反序列化时,用父类指针去取出,对象就会被新建成父类对象. 从而出错.
-            解决方法:
-                给所有类型进行编号,只要是有可能被序列化的类型,都要有一个编号.
-                    序列化时,先将编号写入流中,然后再写入对象.
-                    反序列化时,如果编号对应的类型是子类,则将其转换为子类指针.
-                    这样就可以避免父类指针指向子类对象的问题.
-                但是,如果在序列化时,父类指针指向子类对象,该如何是好?
-                    所以,如果是自定义的struct/class,就要准备一个虚函数,获取当前类型.
+        解决方法:
+            给所有类型进行编号,只要是有可能被序列化的类型,都要有一个编号.
+                序列化时,先将编号写入流中,然后再写入对象.
+                反序列化时,如果编号对应的类型是子类,则将其转换为子类指针.
+                这样就可以避免父类指针指向子类对象的问题.
+            但是,如果在序列化时,父类指针指向子类对象,该如何是好?
+                所以,如果是自定义的struct/class,就要准备一个虚函数,获取当前类型.
     版本0.0.4:
         支持chrono
             新建了StreamPunkTime类型128位数据保存时间,精度细至atto,时间跨度也足够.
     版本0.0.5:
         引入Base解决版本0.0.3存在的问题, 代价是所有需要用到这个库的类, 都要继承Base
-
     待办:
-        需要支持深拷贝吗?
-        需要让它被json拉低身份吗?
+        0.0.6 支持 optional filesystem::path atomic 
+        0.0.7 variant 
+        0.0.8 支持enum/enum class
+        0.0.9 any
+            any做序列化问题很大
+            这个库对待序列化的基本前提就是: 在编码时,你明确知道这个放进去的对象是啥类型.
+            而当 O& operator<<(O& o, std::any const& v) 被调用时, 它并不知道v存的究竟是哪一个类型,
+            有方法可以得知,但必须通过手写代码进行穷举对比,从而得出原类型.
+            可若是模板的各种特化, 则无穷无尽, 不便穷举了.
+
+            需要更多的动态支持,这种工作应该是编译器做好的,放在type_info当中.
+
+            目前想到的办法,也只能有限地做到,自动地支持在自定义类中成员的类型. 其他的临时使用的模板特化类型, 就得另开一个Xt_表,
+            用户要对该类型使用StreamPunk,就要手动地在表中进行注册.
+            
+            还是不够好. 干脆不支持算了?
+            没有any会不会死?
+        0.0.10 支持深拷贝
+
+        0.1.0 实现机器特性描述
+        0.1.1 实现类型描述
+        0.1.2 实现查询
+
+        0.2.0 实现与 JS     互通
+        0.2.1 实现与 TS     互通
+        0.2.2 实现与 Python 互通
+        0.2.3 实现与 Kotlin 互通
+        0.2.4 实现与 Java   互通
+        0.2.5 实现与 Go     互通
+        0.2.6 实现与 Rust   互通
+
+        0.3.0 图形化显示数据
+    使用方法:
+        所有自定义的类,要使用到StreamPunk的序列化/反序列化,就要继承Base.
+        定义了之后,也要将名称和别名写到Xt_CustomType当中.
+    注意事项:
+        本项目下的所有文件使用utf-8编码 无签名,代码页65001
+        仅限Cpp20及以上标准
+        必须开启RTTI
+        程序初始化必须运行一次 INIT_StreamPunk();
+        all_custom_creator_pfn 和 typeInfo2TypeID 两个全局变量虽然没有const修饰, 但切勿修改.
+        自定义的类不建议菱形继承.
+        不支持void*指向的对象.
 */
-# define VER_StreamPunk 0.0.4
+# define VER_StreamPunk 0.0.8
 
 /*
     这是用来注册自定义数据的头文件.
@@ -199,14 +245,14 @@ constexpr static size_t customTypeNum = static_cast<size_t>(E_type::e_customType
 using PFN_VoidPtrCreator = void* (*)();
 inline std::array<PFN_VoidPtrCreator, customTypeNum> all_custom_creator_pfn;
 template<typename T> void* custom_create() { return new T{}; }
-# define X_reg_custom(type, name) all_custom_creator_pfn[TypeID_t<name>::id - customTypeBeginNum] = custom_create<name>;
+inline std::map<type_info const*, Sz> typeInfo2TypeID;
+# define X_reg_custom(type, name) all_custom_creator_pfn[TypeID_t<name>::id - customTypeBeginNum] = custom_create<name>; typeInfo2TypeID[&typeid(name)] = TypeID_t<name>::id;
 # define REG_StreamPunk_CustomType(Xt__) Xt__(X_reg_custom)
 /*
     自定义类型的指针的反序列化,必须发生在初始化之后.
     否则,为了消除声明依赖而设立的all_custom_creator_pfn还未被初始化.必然报错.
 */
 # define INIT_StreamPunk() REG_StreamPunk_CustomType(Xt_CustomType)
-
 
 # define NONE(...) 
 # define DH ,
@@ -268,6 +314,15 @@ inline I& operator>>(I& s,       f32& v) { s.s.read(reinterpret_cast<char*>(&v),
 inline I& operator>>(I& s,       f64& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
 inline I& operator>>(I& s,       ch & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
 inline I& operator>>(I& s,       bl & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+
+template<typename T> std::enable_if_t<std::is_enum_v<T>, O&> operator<<(O& o, T const& v) {
+    o << reinterpret_cast<Sz const&>(v);
+    return o;
+}
+template<typename T> std::enable_if_t<std::is_enum_v<T>, I&> operator>>(I& i, T& v) {
+    i >> reinterpret_cast<Sz&>(v);
+    return i;
+}
 
     /* ======================= chrono的输入输出 ===================== */
 struct StreamPunkTime {
@@ -703,5 +758,112 @@ template<typename T> inline I& operator>>(I& i, Wptr<T>& v) {
     return i;
 }
 template<typename T> inline I& operator>>(I& i, Uptr<T>& v) { T* p{}; i >> p; v.reset(p); return i; }
+
+    /* ==================== optional filesystem::path atomic ==================== */
+template<typename T> inline O& operator<<(O& o, std::optional<T>const& v) {
+    bool has_value = v.has_value();
+    o << has_value;
+    if (has_value) {
+        o << v.value();
+    }
+    return o;
+}
+template<typename T> inline I& operator>>(I& i, std::optional<T>& v) {
+    bool has_value = false;
+    i >> has_value;
+    if (has_value) {
+        v.emplace();
+        i >> v.value();
+    }
+    else {
+        v.reset();
+    }
+    return i;
+}
+
+inline O& operator<<(O& o, std::filesystem::path const& v) {
+    std::u8string u8str = v.u8string();
+    o << u8str;
+    return o;
+}
+inline I& operator>>(I& i, std::filesystem::path& v) {
+    std::u8string u8str;
+    i >> u8str;
+    v = u8str;
+    return i;
+}
+
+
+template<typename T> inline O& operator<<(O& o, std::atomic_ref<T>const& v) {
+    T t = v.load(std::memory_order_acquire);
+    o << t;
+    return o;
+}
+template<typename T> inline I& operator>>(I& i, std::atomic_ref<T>& v) {
+    T t;
+    i >> t;
+    v.store(t, std::memory_order_release);
+    return i;
+}
+template<typename T> inline O& operator<<(O& o, std::atomic<T>const& v) {
+    T t = v.load(std::memory_order_acquire);
+    o << t;
+    return o;
+}
+template<typename T> inline I& operator>>(I& i, std::atomic<T>& v) {
+    T t;
+    i >> t;
+    v.store(t, std::memory_order_release);
+    return i;
+}
+
+/* =================================== variant =================================== */
+
+template<typename... Args> inline O& operator<<(O& o, std::variant<Args...> const& v) {
+    o << (Sz)v.index();
+    std::visit([&](auto&& arg) { o << arg; }, v);
+    return o;
+}
+namespace detail {
+    template<size_t currIdx=0, typename... Args>
+    inline void inputVariant(I& i, std::variant<Args...>& v, Sz idx) {
+        constexpr auto sz = sizeof...(Args);
+        if (idx == currIdx) {
+            using T = std::variant_alternative_t<currIdx, std::variant<Args...>>;
+            T value;
+            i >> value;
+            v = std::move(value);
+            return;
+        }
+        if constexpr (currIdx + 1 < sz) {
+            inputVariant<currIdx + 1>(i, v, idx);
+        }
+    }
+}
+template<typename... Args> inline I& operator>>(I& i, std::variant<Args...>& v) {
+    Sz idx = 0;
+    i >> idx;
+    constexpr std::size_t N = sizeof...(Args);
+    if (idx >= N) {
+        throw std::runtime_error("o >> std::variant error");
+    }
+    detail::inputVariant(i, v, idx);
+    return i;
+}
+
+
+
+
+
+//inline O& operator<<(O& o, std::any const& v) {
+//    bool has_value = v.has_value();
+//    o << has_value;
+//    auto& typeInfoIdx = v.type();
+//    auto& x = typeid(int);
+//    return o;
+//}
+//inline I& operator>>(I& i, std::any& v) {
+//    return i;
+//}
 
 
