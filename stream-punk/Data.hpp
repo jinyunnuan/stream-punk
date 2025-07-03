@@ -104,7 +104,7 @@ struct NetworkDevice : public Device {
     X__(u16, port, 0)
 
     NetworkDevice() = default;
-    UseData(NetworkDevice);
+    UseDataBase(NetworkDevice,Device);
 };
 
 // 传感器设备 - 继承自Device
@@ -116,7 +116,7 @@ struct Sensor : public Device {
     X__(std::chrono::milliseconds, samplingInterval, std::chrono::milliseconds(1000))
 
     Sensor() = default;
-    UseData(Sensor);
+    UseDataBase(Sensor,Device);
 
     // 虚函数示例
     virtual f64 getNormalizedValue() const {
@@ -131,7 +131,7 @@ struct TemperatureSensor : public Sensor {
     X__(f64, calibrationOffset, 0.0)
 
     TemperatureSensor() = default;
-    UseData(TemperatureSensor);
+    UseDataBase(TemperatureSensor, Sensor);
 
     // 重写虚函数
     f64 getNormalizedValue() const override {

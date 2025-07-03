@@ -29,6 +29,9 @@
 
 # include <algorithm>
 
+# include <tuple>
+# include <ranges>
+
 /*
     这个库汉语名称: 流水账
     英文名:StreamPunk
@@ -60,50 +63,60 @@
             新建了StreamPunkTime类型128位数据保存时间,精度细至atto,时间跨度也足够.
     版本0.0.5:
         引入Base解决版本0.0.3存在的问题, 代价是所有需要用到这个库的类, 都要继承Base
+    v0.0.6 支持 optional filesystem::path atomic 
+    v0.0.7 variant 
+    v0.0.8 支持enum/enum class
+    v0.0.9 
+        去除对std::string_view的反序列化支持
+        添加std::span<T>的序列化支持
+        添加std::initializer_list 的序列化支持
+        添加std::tuple的序列化/反序列化支持
+    v0.1.0 支持深拷贝
     待办:
-        0.0.6 支持 optional filesystem::path atomic 
-        0.0.7 variant 
-        0.0.8 支持enum/enum class
-        0.0.9 any
-            any做序列化问题很大
-            这个库对待序列化的基本前提就是: 在编码时,你明确知道这个放进去的对象是啥类型.
-            而当 O& operator<<(O& o, std::any const& v) 被调用时, 它并不知道v存的究竟是哪一个类型,
-            有方法可以得知,但必须通过手写代码进行穷举对比,从而得出原类型.
-            可若是模板的各种特化, 则无穷无尽, 不便穷举了.
+        v0.1.1 实现机器特性描述
+        v0.1.2 实现类型描述
+        v0.1.3 实现查询
 
-            需要更多的动态支持,这种工作应该是编译器做好的,放在type_info当中.
+        v0.2.0 数据版本管理
 
-            目前想到的办法,也只能有限地做到,自动地支持在自定义类中成员的类型. 其他的临时使用的模板特化类型, 就得另开一个Xt_表,
-            用户要对该类型使用StreamPunk,就要手动地在表中进行注册.
-            
-            还是不够好. 干脆不支持算了?
-            没有any会不会死?
-        0.0.10 支持深拷贝
+        v0.3.0 实现与 JS     互通
+        v0.3.1 实现与 TS     互通
+        v0.3.2 实现与 Python 互通
+        v0.3.3 实现与 Kotlin 互通
+        v0.3.4 实现与 Java   互通
+        v0.3.5 实现与 Go     互通
+        v0.3.6 实现与 Rust   互通
 
-        0.1.0 实现机器特性描述
-        0.1.1 实现类型描述
-        0.1.2 实现查询
-
-        0.2.0 实现与 JS     互通
-        0.2.1 实现与 TS     互通
-        0.2.2 实现与 Python 互通
-        0.2.3 实现与 Kotlin 互通
-        0.2.4 实现与 Java   互通
-        0.2.5 实现与 Go     互通
-        0.2.6 实现与 Rust   互通
-
-        0.3.0 图形化显示数据
+        v0.4.0 图形化显示数据
     使用方法:
         所有自定义的类,要使用到StreamPunk的序列化/反序列化,就要继承Base.
         定义了之后,也要将名称和别名写到Xt_CustomType当中.
+
+        深拷贝:
+            执行深拷贝依靠 DeepCopier 的对象,拷贝完要手动执行clear()
     注意事项:
         本项目下的所有文件使用utf-8编码 无签名,代码页65001
         仅限Cpp20及以上标准
-        必须开启RTTI
+        编译项目必须开启RTTI
         程序初始化必须运行一次 INIT_StreamPunk();
         all_custom_creator_pfn 和 typeInfo2TypeID 两个全局变量虽然没有const修饰, 但切勿修改.
-        自定义的类不建议菱形继承.
-        不支持void*指向的对象.
+
+        自定义的类不建议多继承,菱形继承
+        自定义的类不要用std::string_view std::span 等,只适合临时使用的类型做成员.
+        std::string_view std::span 这种类可以做序列化,但不能做反序列化.
+        
+        目前char* / char const* 会被当成堆空间的一个char的对象进行处理 而不是字符串.
+        使用 o << std::move(obj);大部分情况里,obj的数据不会被移走, 而是被当做一个引用来处理.
+
+        指针:
+            1. 不要使用原始引用作为成员.
+            2. 在反序列化时,遇到原始指针,StreamPunk只会给原始指针从堆中分配对象. 所以使用时,只适合让原始指针指向堆分配的对象.
+            3. 同样, 在进行深拷贝时, 拷贝出来的原始指针, 指向的也是新创建的堆分配的对象.
+            这意味着, 如果你用指针a指向了另一个对象中的成员b,那么,反序列化出来之后,这个指针a`,指向的就是一个独立对象c`, 与b`是相互独立的.
+            综上所述, 对于需要类内引用的部分, 最好将其改为1.Sptr配合Wptr进行引用. 2.Uptr配合原始指针进行引用.
+            4.void*不能用来做首次序列化 会出问题
+        涉及到map的深拷贝,要求键和值的类型支持移动构造
+        自定义类当中,默认大家都不使用private, 若使用private对成员进行保护,则需要注意给StreamPunk声明友元函数
 */
 # define VER_StreamPunk 0.0.8
 
@@ -158,6 +171,13 @@ template<typename T> using Sptr = std::shared_ptr<T>;
 template<typename T> using Wptr = std::weak_ptr  <T>;
 template<typename T> using Uptr = std::unique_ptr<T>;
 
+struct PtrRefInfo {
+    Sz refCount = 0;
+    enum {e_raw, e_uptr, e_sptr} kind;
+    std::any ptr;
+};
+using DeepCopier = std::unordered_map<void*, PtrRefInfo>;
+
 /*
     这个流对象会在序列化和反序列化时,存一些上下文数据
     主要是为了避免重复序列化同一个指针,以及在反序列化时,避免重复创建对象
@@ -201,6 +221,7 @@ struct Base {
     virtual Sz typeID() const = 0; // 返回类型ID
     virtual void output(O& o) const {};
     virtual void input(I& i) {};
+    virtual void deepCopyFrom(DeepCopier& dc, Base const& v) {}; // 被拷贝的对象,其实际类型必须是这个类或者这个类的子类.
 };
 inline O& operator<<(O& o, Base const& v) { v.output(o); return o; }
 inline I& operator>>(I& i, Base& v) { v.input(i); return i; }
@@ -242,9 +263,9 @@ Xt_CustomType(X_DEF_TypeID_custom);
 
 constexpr static size_t customTypeBeginNum = static_cast<size_t>(E_type::e_basicType) + 1;
 constexpr static size_t customTypeNum = static_cast<size_t>(E_type::e_customType) - customTypeBeginNum;
-using PFN_VoidPtrCreator = void* (*)();
+using PFN_VoidPtrCreator = Base* (*)();
 inline std::array<PFN_VoidPtrCreator, customTypeNum> all_custom_creator_pfn;
-template<typename T> void* custom_create() { return new T{}; }
+template<typename T> Base* custom_create() { return new T{}; }
 inline std::map<type_info const*, Sz> typeInfo2TypeID;
 # define X_reg_custom(type, name) all_custom_creator_pfn[TypeID_t<name>::id - customTypeBeginNum] = custom_create<name>; typeInfo2TypeID[&typeid(name)] = TypeID_t<name>::id;
 # define REG_StreamPunk_CustomType(Xt__) Xt__(X_reg_custom)
@@ -262,6 +283,7 @@ inline std::map<type_info const*, Sz> typeInfo2TypeID;
 # define X_enumClassMember(     type__, name__    , ...) e_##name__,
 # define X_leftShiftName(type__, name__, ...) << name__
 # define X_rightShiftName(type__, name__, ...) >> name__
+# define X_deepCopyFrom(type__, name__, ...) deepCopy(dc, name__, v.name__);
 //# define X_class_DH_member_copy_v_(type__, name__, ...) , name__(v_.name__)
 //# define X_class_DH_member_move_v_(type__, name__, ...) , name__(std::move(v_.name__))
 //# define X_class_DH_member_assign_v_(type__, name__, ...) name__ = v_.name__;
@@ -272,7 +294,8 @@ DEC_MemberEnum(E_idx, Xt__); \
 Xt__(X_classMember); \
 Sz typeID() const override { return TypeID_t<TypeName__>::id; } \
 void output(O& o) const override { Base__::output(o); o Xt__(X_leftShiftName); } \
-void input(I& i) override { Base__::input(i); i Xt__(X_rightShiftName); }
+void input(I& i) override { Base__::input(i); i Xt__(X_rightShiftName); } \
+void deepCopyFrom(DeepCopier& dc, Base const& v_) override { Base__::deepCopyFrom(dc, v_); TypeName__ const& v = dynamic_cast<TypeName__ const&>(v_); Xt__(X_deepCopyFrom); }
 
 # define UseDataXt(TypeName__, Xt__) UseDataXtBase(TypeName__, Xt__, Base)
 # define UseDataBase(TypeName__, Base__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base__)
@@ -426,7 +449,7 @@ namespace detail {
                 如果 ValueType 是平凡可拷贝的类型，直接使用二进制写入
                 然而会引来一个问题:如果ValueType是std::array,尺寸是固定已知的,所以它被序列化时,会被当作一个整体来处理,就不会先写入长度.
             */
-            o.s.write(reinterpret_cast<char const*>(v.data()), sizeof(ValueType) * v.size());
+            o.s.write(reinterpret_cast<char const*>(std::data(v)), sizeof(ValueType) * v.size());
         }
         else {
             for (auto&& x : v) {
@@ -460,9 +483,6 @@ template<typename T, size_t N       > inline O& operator<<(O& o, std::array <T, 
 template<typename T, typename...Args> inline O& operator<<(O& o, std::basic_string <T, Args...>const& v) {
     detail::writeSpan<T>(o, v); return o;
 }
-template<typename T> inline O& operator<<(O& o, std::basic_string_view<T> const& v) {
-    detail::writeSpan<T>(o, v); return o;
-}
 template<size_t N> inline O& operator<<(O& o, std::bitset<N>const& v) {
     Sz sz = N;
     o << sz;
@@ -487,9 +507,7 @@ template<typename T, size_t N       > inline I& operator>>(I& i, std::array <T, 
 template<typename T, typename...Args> inline I& operator>>(I& i, std::basic_string <T, Args...>& v) {
     detail::readSpan<T>(i, v); return i;
 }
-template<typename T                 > inline I& operator>>(I& i, std::basic_string_view<T>& v) {
-    detail::readSpan<T>(i, v); return i;
-}
+
 template<size_t   N> inline I& operator>>(I& i, std::bitset<N>& v) {
     Sz sz;
     i >> sz;
@@ -622,18 +640,21 @@ template<typename K, typename V, typename... Args> inline I& operator>>(I& i, st
     这个情况下,将新的对象再放入流,就不会对新建的对象实际输出,从而造成反序列化时读取数据发生错误.
 */
 namespace detail {
+    inline Base* create_custom_type_from_typeID(Sz typeID) {
+        size_t creatorPfnIdx = typeID - (static_cast<size_t>(E_type::e_basicType) + 1);
+        // 检查typeID是否有效
+        if (creatorPfnIdx >= all_custom_creator_pfn.size() || all_custom_creator_pfn[creatorPfnIdx] == nullptr) {
+            std::stringstream ss;
+            ss << "i >> typeID : Invalid typeID " << typeID << ". Valid range: 0-" << (all_custom_creator_pfn.size() - 1);
+            throw std::runtime_error(ss.str());
+        }
+        return all_custom_creator_pfn[creatorPfnIdx]();
+    }
     template<typename T> inline void createEmtpyObj(I& i, T*& v){
         if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T, Base>) {
             Sz typeID;
             i >> typeID;
-            size_t creatorPfnIdx = typeID - (static_cast<size_t>(E_type::e_basicType) + 1);
-            // 检查typeID是否有效
-            if (creatorPfnIdx >= all_custom_creator_pfn.size() || all_custom_creator_pfn[creatorPfnIdx] == nullptr) {
-                std::stringstream ss;
-                ss << "i >> typeID : Invalid typeID " << typeID << ". Valid range: 0-" << (all_custom_creator_pfn.size() - 1);
-                throw std::runtime_error(ss.str());
-            }
-            void* voidPtr = all_custom_creator_pfn[creatorPfnIdx]();
+            void* voidPtr = create_custom_type_from_typeID(typeID);
         # if (RTTI_ENABLED)
             Base* basePtr = static_cast<Base*>(voidPtr);
             v = dynamic_cast<T*>(basePtr);
@@ -666,7 +687,7 @@ template<typename T> inline O& operator<<(O& o, T const* const v) {
     }
     if (o.ptrSet.find(p) == o.ptrSet.end()) {
         o.ptrSet.emplace(p);
-        if constexpr (TypeID_t<T>::kind == E_type::e_customType) {
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T, Base>) {
             o << v->typeID();
         }
         o << (*v);
@@ -676,9 +697,9 @@ template<typename T> inline O& operator<<(O& o, T const* const v) {
     }
     return o;
 }
-template<typename T> inline O& operator<<(O& o, Sptr<T>const& v) { o << v.get(); return o; }
-template<typename T> inline O& operator<<(O& o, Wptr<T>const& v) { o << v.lock().get(); return o; }
-template<typename T> inline O& operator<<(O& o, Uptr<T>const& v) { o << v.get(); return o; }
+template<typename T> inline O& operator<<(O& o, Sptr<T> const& v) { o << v.get(); return o; }
+template<typename T> inline O& operator<<(O& o, Wptr<T> const& v) { o << v.lock().get(); return o; }
+template<typename T> inline O& operator<<(O& o, Uptr<T> const& v) { o << v.get(); return o; }
 
 template<typename T> inline I& operator>>(I& i, T*& v) {
     PtrValue p = 0;
@@ -758,6 +779,17 @@ template<typename T> inline I& operator>>(I& i, Wptr<T>& v) {
     return i;
 }
 template<typename T> inline I& operator>>(I& i, Uptr<T>& v) { T* p{}; i >> p; v.reset(p); return i; }
+
+    /* ======================= 仅限输出 ===================== */
+template<typename T> inline O& operator<<(O& o, std::basic_string_view<T> const& v) {
+    detail::writeSpan<T>(o, v); return o;
+}
+template<typename T> inline O& operator<<(O& o, std::initializer_list<T> const& v) {
+    detail::writeSpan<T>(o, v); return o;
+}
+template<typename T> inline O& operator<<(O& o, std::span<T> const& v) {
+    detail::writeSpan<T>(o, v); return o;
+}
 
     /* ==================== optional filesystem::path atomic ==================== */
 template<typename T> inline O& operator<<(O& o, std::optional<T>const& v) {
@@ -851,19 +883,258 @@ template<typename... Args> inline I& operator>>(I& i, std::variant<Args...>& v) 
     return i;
 }
 
+/* =================================== tuple =================================== */
+template<typename... Args> inline O& operator<<(O& o, std::tuple<Args...> const& v) {
+    std::apply([&](const auto&... elements) {
+        ((o << elements), ...);
+    }, v);
+    return o;
+}
 
+template<typename... Args> inline I& operator>>(I& i, std::tuple<Args...>& v) {
+    std::apply([&](auto&&... args) {
+        ((i >> std::forward<decltype(args)>(args)), ...);
+    }, v);
+    return i;
+}
 
+/* ======================================= 深拷贝 ======================================= */
 
+inline void deepCopy(DeepCopier&, u8& dstV, u8  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u16& dstV, u16 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u32& dstV, u32 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u64& dstV, u64 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i8& dstV, i8  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i16& dstV, i16 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i32& dstV, i32 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i64& dstV, i64 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, f32& dstV, f32 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, f64& dstV, f64 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, ch& dstV, ch  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, bl& dstV, bl  const& srcV) { dstV = srcV; }
 
-//inline O& operator<<(O& o, std::any const& v) {
-//    bool has_value = v.has_value();
-//    o << has_value;
-//    auto& typeInfoIdx = v.type();
-//    auto& x = typeid(int);
-//    return o;
-//}
-//inline I& operator>>(I& i, std::any& v) {
-//    return i;
-//}
+template <typename T> inline std::enable_if_t<std::is_enum_v<T>, void> deepCopy(DeepCopier&, T& dstV, const T& srcV) { dstV = srcV; }
 
+template<typename Rep, typename Period>
+inline void deepCopy(DeepCopier&, std::chrono::duration<Rep, Period>& dstV, std::chrono::duration<Rep, Period>const& srcV) { dstV = srcV; }
+
+template<typename Clock, typename Duration>
+inline void deepCopy(DeepCopier&, std::chrono::time_point<Clock, Duration>& dstV, std::chrono::time_point<Clock, Duration>const& srcV) { dstV = srcV; }
+
+template<typename T, typename...Args> inline void deepCopy(DeepCopier& dc, std::vector<T, Args...>& dstV, std::vector<T, Args...>const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    dstV.clear();
+    dstV.reserve(srcV.size());
+    for (const auto& srcElement : srcV) {
+        dstV.emplace_back();
+        deepCopy(dc, dstV.back(), srcElement);
+    }
+}
+
+template<typename T, size_t N> inline void deepCopy(DeepCopier&, std::array <T, N>& dstV, std::array <T, N>const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    for (size_t i = 0; i < N; ++i) {
+        deepCopy(dstV[i], srcV[i]);
+    }
+}
+
+template<typename T, typename...Args> inline void deepCopy(DeepCopier&, std::basic_string <T, Args...>& dstV, std::basic_string <T, Args...>const& srcV) { dstV = srcV; }
+
+template<size_t N> inline void deepCopy(DeepCopier&, std::bitset<N>& dstV, std::bitset<N>const& srcV) { dstV = srcV; }
+
+namespace detail {
+    template<typename T> inline void deepCopyContainer(DeepCopier& dc, T& dstV, T const& srcV) {
+        if (std::addressof(dstV) == std::addressof(srcV)) {
+            return;
+        }
+        dstV.clear();
+        for (const auto& srcElement : srcV) {
+            dstV.emplace_back();
+            deepCopy(dc, dstV.back(), srcElement);
+        }
+    }
+    template<typename T> inline void deepCopySet(DeepCopier& dc, T& dstV, T const& srcV) {
+        if (std::addressof(dstV) == std::addressof(srcV)) {
+            return;
+        }
+        dstV.clear();
+        for (auto const& srcElement : srcV) {
+            typename T::value_type newElement{};
+            deepCopy(dc, newElement, srcElement);
+            dstV.emplace(std::move(newElement));
+        }
+    }
+    template<typename T> inline void deepCopyMap(DeepCopier& dc, T& dstV, T const& srcV) {
+        if (std::addressof(dstV) == std::addressof(srcV)) {
+            return;
+        }
+        dstV.clear();
+        auto hint = dstV.cend();
+        for (const auto& [srcKey, srcVal] : srcV) {
+            typename T::key_type newKey;
+            deepCopy(dc, newKey, srcKey);
+            typename T::value_type::second_type newVal; newVal;
+            deepCopy(dc, newVal, srcVal);
+            hint = dstV.emplace_hint(hint, std::move(newKey), std::move(newVal));
+        }
+    }
+
+}   // namespace detail
+
+template<typename T, typename... Args> inline void deepCopy(DeepCopier& dc, std::deque        <T, Args...>& dstV, std::deque        <T, Args...>const& srcV) { detail::deepCopyContainer(dc, dstV, srcV); }
+template<typename T, typename... Args> inline void deepCopy(DeepCopier& dc, std::list         <T, Args...>& dstV, std::list         <T, Args...>const& srcV) { detail::deepCopyContainer(dc, dstV, srcV); }
+template<typename T, typename... Args> inline void deepCopy(DeepCopier& dc, std::forward_list <T, Args...>& dstV, std::forward_list <T, Args...>const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    dstV.clear();
+    if (srcV.empty()) {
+        return;
+    }
+    auto srcIt = srcV.begin();
+    auto current = dstV.before_begin();
+    current = dstV.insert_after(current, T{});
+    deepCopy(*current, *srcIt);
+    ++srcIt;
+    while (srcIt != srcV.end()) {
+        current = dstV.insert_after(current, T{});
+        deepCopy(*current, *srcIt);
+        ++srcIt;
+    }
+}
+template<typename T, typename... Args> inline void deepCopy(DeepCopier& dc, std::set          <T, Args...>& dstV, std::set          <T, Args...>const& srcV) {
+    detail::deepCopySet(dc, dstV, srcV);
+}
+template<typename T, typename... Args> inline void deepCopy(DeepCopier& dc, std::unordered_set<T, Args...>& dstV, std::unordered_set<T, Args...>const& srcV) {
+    detail::deepCopySet(dc, dstV, srcV);
+}
+template<typename K, typename V, typename... Args> inline void deepCopy(DeepCopier& dc, std::map          <K, V, Args...>& dstV, std::map          <K, V, Args...>const& srcV) {
+    detail::deepCopyMap(dc, dstV, srcV);
+}
+template<typename K, typename V, typename... Args> inline void deepCopy(DeepCopier& dc, std::unordered_map<K, V, Args...>& dstV, std::unordered_map<K, V, Args...>const& srcV) {
+    detail::deepCopyMap(dc, dstV, srcV);
+}
+
+template<typename T> inline void deepCopy(DeepCopier& dc, T*& dstV, T*const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    if (srcV == nullptr) {
+        dstV = nullptr;
+        return;
+    }
+    void* key = std::remove_cv_t<T*>(srcV);
+    auto itr = dc.find(key);
+    if (itr == dc.end()) {
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T, Base>) {
+            Base* ptr = detail::create_custom_type_from_typeID(srcV->typeID());
+            dstV = dynamic_cast<T*>(ptr);
+            dc.emplace(key, PtrRefInfo{ .refCount = 0, .kind = PtrRefInfo::e_raw, .ptr = dstV });
+            dstV->deepCopyFrom(dc, *srcV);
+        }
+        else {
+            dstV = new T();
+            dc.emplace(key, PtrRefInfo{ .refCount = 0, .kind = PtrRefInfo::e_raw, .ptr = dstV });
+            deepCopy(dc, *dstV, *srcV);
+        }
+        return;
+    }
+    auto& info = itr->second;
+    switch (info.kind) {
+        case PtrRefInfo::e_raw : dstV = std::any_cast<T*>(info.ptr); break;
+        case PtrRefInfo::e_sptr: dstV = std::any_cast<Sptr<T>>(info.ptr).get(); break;
+        case PtrRefInfo::e_uptr: dstV = std::any_cast<T*>(info.ptr); break;
+        default: throw std::runtime_error("PtrRefInfo kind error!");
+    }
+}
+template<typename T> inline void deepCopy(DeepCopier& dc, Sptr<T>& dstV, Sptr<T> const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    if (srcV == nullptr) {
+        dstV = nullptr;
+        return;
+    }
+    void* key = static_cast<void*>(srcV.get());
+    auto itr = dc.find(key);
+    if (itr == dc.end()) {
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T, Base>) {
+            Base* ptr = detail::create_custom_type_from_typeID(srcV->typeID());
+            dstV.reset(dynamic_cast<T*>(ptr));
+            dc.emplace(key, PtrRefInfo{ .refCount = 0, .kind = PtrRefInfo::e_sptr, .ptr = dstV });
+            dstV->deepCopyFrom(dc, *srcV);
+        }
+        else {
+            dstV.reset(new T());
+            dc.emplace(key, PtrRefInfo{ .refCount = 0, .kind = PtrRefInfo::e_sptr, .ptr = dstV });
+            deepCopy(dc, *dstV, *srcV);
+        }
+        return;
+    }
+    auto& info = itr->second;
+    switch (info.kind) {
+        case PtrRefInfo::e_raw : dstV.reset(std::any_cast<T*>(info.ptr)); info.kind = PtrRefInfo::e_sptr; break;
+        case PtrRefInfo::e_sptr: dstV = std::any_cast<Sptr<T>>(info.ptr); break;
+        case PtrRefInfo::e_uptr: throw std::runtime_error("Expecting an Sptr, but occupied by Uptr"); break;
+        default: throw std::runtime_error("PtrRefInfo kind error!");
+    }
+}
+template<typename T> inline void deepCopy(DeepCopier& dc, Wptr<T>& dstV, Wptr<T> const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    auto srcSptr = srcV.lock();
+    if (srcSptr == nullptr) {
+        dstV.reset();
+        return;
+    }
+    Sptr<T> dstSptr;
+    deepCopy(dc, dstSptr, srcSptr);
+    dstV = dstSptr;
+}
+template<typename T> inline void deepCopy(DeepCopier& dc, Uptr<T>& dstV, Uptr<T> const& srcV) {
+    if (std::addressof(dstV) == std::addressof(srcV)) {
+        return;
+    }
+    if (srcV.get() == nullptr) {
+        dstV.reset();
+        return;
+    }
+    void* key = static_cast<void*>(srcV.get());
+    auto itr = dc.find(key);
+    if (itr == dc.end()) {
+        if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T,Base>) {
+            Base* ptr = detail::create_custom_type_from_typeID(srcV->typeID());
+            dstV.reset(dynamic_cast<T*>(ptr));
+            dc.emplace(key, PtrRefInfo{ .refCount = 0, .kind = PtrRefInfo::e_uptr, .ptr = dstV.get()});
+            dstV->deepCopyFrom(dc, *srcV);
+        }
+        else {
+            dstV.reset(new T());
+            dc.emplace(key, PtrRefInfo{ .refCount = 0, .kind = PtrRefInfo::e_uptr, .ptr = dstV.get()});
+            deepCopy(dc, *dstV, *srcV);
+        }
+        return;
+    }
+    auto& info = itr->second;
+    switch (info.kind) {
+        case PtrRefInfo::e_raw : dstV.reset(std::any_cast<T*>(info.ptr)); info.kind = PtrRefInfo::e_uptr; break;
+        case PtrRefInfo::e_sptr: throw std::runtime_error("Expecting an raw_ptr, but occupied by Sptr"); break;
+        case PtrRefInfo::e_uptr: throw std::runtime_error("Expecting an raw_ptr, but occupied by Uptr"); break;
+        default: throw std::runtime_error("PtrRefInfo kind error!");
+    }
+}
+
+template<typename T> inline void deepCopy(DeepCopier& dc, T& dstV, T const& srcV) {
+    if constexpr (TypeID_t<T>::kind == E_type::e_customType || std::is_same_v<T, Base>) {
+        dstV.deepCopyFrom(dc, srcV);
+    }
+    else {
+        dstV = srcV;
+    }
+}
 

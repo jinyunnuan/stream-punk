@@ -152,6 +152,8 @@
     <ClCompile Include="unit_test_ptr_for0.0.5.cpp" />
     <ClCompile Include="unit_test_scuffle.cpp" />
     <ClCompile Include="unit_test_typeid.cpp" />
+    <ClCompile Include="unit_test_v0.1.0.cpp" />
+    <ClCompile Include="unit_test_v0.0.9.cpp" />
     <ClCompile Include="unit_test_v0.0.6.cpp" />
     <ClCompile Include="unit_test_v0.0.7.cpp" />
     <ClCompile Include="unit_test_v0.0.8.cpp" />
