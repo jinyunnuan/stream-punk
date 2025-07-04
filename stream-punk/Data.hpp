@@ -1,4 +1,111 @@
 # include "StreamPunk.hpp"
+# include <boost/predef.h>
+
+constexpr inline u32 currDataVer = makeVersion(0, 0, 1, 0);
+
+// 机器特性描述
+#pragma pack(push, 1)  // 1字节对齐
+struct StreamPunkMachineInfo {
+    enum E_os {
+        e_os_unknow = 0,
+        e_os_win    ,
+        e_os_mac    ,
+        e_os_linux  ,
+        e_os_ios    ,
+        e_os_android,
+        e_os_bsd    ,
+    };
+
+    enum E_cpu {
+        e_cpu_unknow = 0,
+        e_cpu_x86   ,
+        e_cpu_X86_64,
+        e_cpu_arm   ,
+        e_cpu_arm64 ,
+        e_cpu_ppc   ,
+    };
+
+    enum E_compiler {
+        e_compiler_unknow = 0,
+        e_compiler_msvc ,
+        e_compiler_gcc  ,
+        e_compiler_clang,
+        e_compiler_intel,
+    };
+
+    u8 endian:1         ;   // 字节序：0=小端, 1=大端
+    u8 os:7             ;   // 操作系统 (E_os)
+    u8 cpu              ;   // CPU架构类型 (E_cpu)
+    u8 wordByteCount    ;   // 程序字长的字节数
+    u8 compiler         ;   // 编译器类型 (E_compiler)
+    
+    u32 compilerVer     ;   // 编译器版本
+    u32 dataVer         ;   // 数据版本
+
+    void init() {
+        std::memset(this, 0, sizeof(StreamPunkMachineInfo));
+
+        if constexpr (std::endian::native == std::endian::little) {
+            endian = 0;
+        }
+        else if constexpr (std::endian::native == std::endian::big) {
+            endian = 1;
+        }
+
+        wordByteCount = sizeof(void*);
+
+        if      constexpr (BOOST_OS_WINDOWS ) os = e_os_win;
+        else if constexpr (BOOST_OS_MACOS   ) os = e_os_mac;
+        else if constexpr (BOOST_OS_LINUX   ) os = e_os_linux;
+        else if constexpr (BOOST_OS_IOS     ) os = e_os_ios;
+# if defined(BOOST_OS_ANDROID)
+        else if constexpr (BOOST_OS_ANDROID ) os = e_os_android;
+# endif
+        else if constexpr (BOOST_OS_BSD     ) os = e_os_bsd;
+        else os = e_os_unknow;
+
+        if      constexpr (BOOST_ARCH_X86_64) cpu = e_cpu_X86_64;
+        else if constexpr (BOOST_ARCH_X86   ) cpu = e_cpu_x86;
+# if defined(BOOST_ARCH_ARM64)
+        else if constexpr (BOOST_ARCH_ARM64 ) cpu = e_cpu_arm64;
+# endif
+        else if constexpr (BOOST_ARCH_ARM   ) cpu = e_cpu_arm;
+        else if constexpr (BOOST_ARCH_PPC   ) cpu = e_cpu_ppc;
+        else cpu = e_cpu_unknow;
+
+        uint32_t compVerRaw = 0;
+        if      constexpr (BOOST_COMP_MSVC  ) {
+            compiler = e_compiler_msvc;
+            compVerRaw = BOOST_COMP_MSVC;
+        }
+        else if constexpr (BOOST_COMP_CLANG ) {
+            compiler = e_compiler_clang;
+            compVerRaw = BOOST_COMP_CLANG;
+        }
+        else if constexpr (BOOST_COMP_GNUC  ) {
+            compiler = e_compiler_gcc;
+            compVerRaw = BOOST_COMP_GNUC;
+        }
+        else if constexpr (BOOST_COMP_INTEL ) {
+            compiler = e_compiler_intel;
+            compVerRaw = BOOST_COMP_INTEL;
+        }
+        else {
+            compiler = e_compiler_unknow;
+        }
+        if (compVerRaw != 0) {
+            uint32_t major = compVerRaw / 10000000;
+            uint32_t minor = (compVerRaw % 10000000) / 100000;
+            uint32_t patch = (compVerRaw % 100000) / 1000;
+            compilerVer = (major << 24) | (minor << 16) | (patch << 8);
+        }
+        dataVer = currDataVer;
+    }
+};
+#pragma pack(pop)
+inline O& operator<<(O& s, const StreamPunkMachineInfo& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s, StreamPunkMachineInfo& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+
 
 /*
     这是单元测试的一部分 也是一个使用示例

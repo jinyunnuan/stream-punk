@@ -72,8 +72,8 @@
         添加std::initializer_list 的序列化支持
         添加std::tuple的序列化/反序列化支持
     v0.1.0 支持深拷贝
+    v0.1.1 实现机器特性描述
     待办:
-        v0.1.1 实现机器特性描述
         v0.1.2 实现类型描述
         v0.1.3 实现查询
 
@@ -170,6 +170,14 @@ using PtrValue = u64;
 template<typename T> using Sptr = std::shared_ptr<T>;
 template<typename T> using Wptr = std::weak_ptr  <T>;
 template<typename T> using Uptr = std::unique_ptr<T>;
+
+inline constexpr u32 makeVersion(u8 major, u8 minor = 0, u8 patch = 0, u8 custom = 0)   noexcept {
+    return std::bit_cast<u32>(std::array<u8, 4>{custom, patch, minor, major});
+}
+inline constexpr u8 getVerMajor (u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[3]; }
+inline constexpr u8 getVerMinor (u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[2]; }
+inline constexpr u8 getVerPatch (u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[1]; }
+inline constexpr u8 getVerCustom(u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[0]; }
 
 struct PtrRefInfo {
     Sz refCount = 0;
