@@ -61,7 +61,7 @@ REG_TEST(test_machine_info_init) {
 #endif
 }
 
-REG_TEST(test_machine_info_serialization) {
+REG_TEST(test_machine_info_serialization_v0_1_1) {
     StreamPunkMachineInfo src;
     src.init();
 

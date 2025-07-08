@@ -1,3 +1,4 @@
+# pragma once
 # include "StreamPunk.hpp"
 # include <boost/predef.h>
 
@@ -274,3 +275,4 @@ struct MultiLevelContainer : public Base {
     MultiLevelContainer() = default;
     UseData(MultiLevelContainer);
 };
+

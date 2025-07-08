@@ -73,8 +73,16 @@
         添加std::tuple的序列化/反序列化支持
     v0.1.0 支持深拷贝
     v0.1.1 实现机器特性描述
+    v0.1.2 实现类型描述
+        补充这些类型的序列化/反序列化:
+            wchar_t
+            char8_t
+            char16_t
+            char32_t
+        遗留问题: timepoint 还有 dur 的类型参数没做描述
     待办:
-        v0.1.2 实现类型描述
+        遗留问题: timepoint 还有 dur 的类型参数没做描述
+
         v0.1.3 实现查询
 
         v0.2.0 数据版本管理
@@ -117,8 +125,10 @@
             4.void*不能用来做首次序列化 会出问题
         涉及到map的深拷贝,要求键和值的类型支持移动构造
         自定义类当中,默认大家都不使用private, 若使用private对成员进行保护,则需要注意给StreamPunk声明友元函数
+
+        自定义模板, 在类型的描述符上, 注意参考现有代码使用MaliuToken, 为它设置相应描述符.
+        不方便做到的, 你可以干脆将特化后的类型, 注册成自定义类.
 */
-# define VER_StreamPunk 0.0.8
 
 /*
     这是用来注册自定义数据的头文件.
@@ -128,19 +138,26 @@
 */
 # include "customData.hpp"
 
+# define NONE(...) 
+# define DH ,
+
 # define Xt_BasicType(X__) \
-X__(::std::uint8_t , u8 ) \
-X__(::std::uint16_t, u16) \
-X__(::std::uint32_t, u32) \
-X__(::std::uint64_t, u64) \
-X__(::std::int8_t  , i8 ) \
-X__(::std::int16_t , i16) \
-X__(::std::int32_t , i32) \
-X__(::std::int64_t , i64) \
-X__(float          , f32) \
-X__(double         , f64) \
-X__(char           , ch ) \
-X__(bool           , bl ) \
+X__(::std::uint8_t , u8  ) \
+X__(::std::uint16_t, u16 ) \
+X__(::std::uint32_t, u32 ) \
+X__(::std::uint64_t, u64 ) \
+X__(::std::int8_t  , i8  ) \
+X__(::std::int16_t , i16 ) \
+X__(::std::int32_t , i32 ) \
+X__(::std::int64_t , i64 ) \
+X__(float          , f32 ) \
+X__(double         , f64 ) \
+X__(char           , ch  ) \
+X__(wchar_t        , chw ) \
+X__(char8_t        , ch8 ) \
+X__(char16_t       , ch16) \
+X__(char32_t       , ch32) \
+X__(bool           , bl  ) \
 
 # define Xt_Type(X__) \
 Xt_BasicType(X__) \
@@ -160,16 +177,8 @@ using Sz = u32;
 using Imax = i64;
 using Umax = u64;
 
-/*
-用来放入流当中的指针类型 长度统一为64位
-对于32位系统来说会浪费4字节本地空间 但是对于64位系统不可或缺
-只考虑32位系统的数据使用,那可以改成u32,省点空间.
-*/
-using PtrValue = u64;
-
-template<typename T> using Sptr = std::shared_ptr<T>;
-template<typename T> using Wptr = std::weak_ptr  <T>;
-template<typename T> using Uptr = std::unique_ptr<T>;
+using MaliuToken = Sz;
+template<size_t N> using MaliuTokenArr = std::array<MaliuToken, N>;
 
 inline constexpr u32 makeVersion(u8 major, u8 minor = 0, u8 patch = 0, u8 custom = 0)   noexcept {
     return std::bit_cast<u32>(std::array<u8, 4>{custom, patch, minor, major});
@@ -178,6 +187,20 @@ inline constexpr u8 getVerMajor (u32 version) noexcept { return std::bit_cast<st
 inline constexpr u8 getVerMinor (u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[2]; }
 inline constexpr u8 getVerPatch (u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[1]; }
 inline constexpr u8 getVerCustom(u32 version) noexcept { return std::bit_cast<std::array<u8, 4>>(version)[0]; }
+
+inline constexpr u32 StreamPunkVer = makeVersion(0, 1, 2);
+
+/*
+用来放入流当中的指针类型 长度统一为64位
+对于32位系统来说会浪费4字节本地空间 但是对于64位系统不可或缺
+如果只考虑32位系统的数据使用,那可以改成u32,省点空间.
+*/
+using PtrValue = u64;
+
+template<typename T> using Sptr = std::shared_ptr<T>;
+template<typename T> using Wptr = std::weak_ptr  <T>;
+template<typename T> using Uptr = std::unique_ptr<T>;
+
 
 struct PtrRefInfo {
     Sz refCount = 0;
@@ -227,26 +250,18 @@ struct Base {
     Base() = default;
     virtual ~Base() = default;
     virtual Sz typeID() const = 0; // 返回类型ID
-    virtual void output(O& o) const {};
-    virtual void input(I& i) {};
-    virtual void deepCopyFrom(DeepCopier& dc, Base const& v) {}; // 被拷贝的对象,其实际类型必须是这个类或者这个类的子类.
+    virtual void output(O& o) const {}
+    virtual void input(I& i) {}
+    virtual void deepCopyFrom(DeepCopier& dc, Base const& v) {} // 被拷贝的对象,其实际类型必须是这个类或者这个类的子类.
+    virtual std::span<MaliuToken const> getDesc() = 0;
 };
 inline O& operator<<(O& o, Base const& v) { v.output(o); return o; }
 inline I& operator>>(I& i, Base& v) { v.input(i); return i; }
 
-// 编译时检测 是否开启RTTI
-#if defined(__GNUC__) || defined(__clang__)
-#define RTTI_ENABLED __GXX_RTTI
-#elif defined(_MSC_VER)
-#define RTTI_ENABLED _CPPRTTI
-#else
-    // 默认认为启用RTTI
-#define RTTI_ENABLED 1
-#endif
-
 # define X_enumMember( type, name, ...) name ,
 enum class E_type { e_unkonwType, Xt_BasicType(X_enumMember) e_basicType, Xt_CustomType(X_enumMember) e_customType, };
 # undef X_enumMember
+
 
 template<typename T> struct TypeID_t {
     constexpr inline static Sz id = static_cast<Sz>(E_type::e_unkonwType);
@@ -263,53 +278,16 @@ Xt_BasicType(X_DEF_TypeID_basic);
 # define X_DEF_TypeID_custom(type,newName) X_DEF_TypeID_kind(type, newName, e_customType);
 Xt_CustomType(X_DEF_TypeID_custom);
 
-
-
 # undef X_DEF_TypeID_custom
 # undef X_DEF_TypeID_basic
 # undef X_DEF_TypeID_kind
 
-constexpr static size_t customTypeBeginNum = static_cast<size_t>(E_type::e_basicType) + 1;
-constexpr static size_t customTypeNum = static_cast<size_t>(E_type::e_customType) - customTypeBeginNum;
-using PFN_VoidPtrCreator = Base* (*)();
-inline std::array<PFN_VoidPtrCreator, customTypeNum> all_custom_creator_pfn;
-template<typename T> Base* custom_create() { return new T{}; }
-inline std::map<type_info const*, Sz> typeInfo2TypeID;
-# define X_reg_custom(type, name) all_custom_creator_pfn[TypeID_t<name>::id - customTypeBeginNum] = custom_create<name>; typeInfo2TypeID[&typeid(name)] = TypeID_t<name>::id;
-# define REG_StreamPunk_CustomType(Xt__) Xt__(X_reg_custom)
-/*
-    自定义类型的指针的反序列化,必须发生在初始化之后.
-    否则,为了消除声明依赖而设立的all_custom_creator_pfn还未被初始化.必然报错.
-*/
-# define INIT_StreamPunk() REG_StreamPunk_CustomType(Xt_CustomType)
-
-# define NONE(...) 
-# define DH ,
-
-# define X_classMember(type__, name__    , ...) type__ name__ = __VA_ARGS__;
-# define DEC_MemberEnum(name__, Xt__, ...) enum name__{ Xt__(X_enumClassMember) e_maxCount };
-# define X_enumClassMember(     type__, name__    , ...) e_##name__,
-# define X_leftShiftName(type__, name__, ...) << name__
-# define X_rightShiftName(type__, name__, ...) >> name__
-# define X_deepCopyFrom(type__, name__, ...) deepCopy(dc, name__, v.name__);
-//# define X_class_DH_member_copy_v_(type__, name__, ...) , name__(v_.name__)
-//# define X_class_DH_member_move_v_(type__, name__, ...) , name__(std::move(v_.name__))
-//# define X_class_DH_member_assign_v_(type__, name__, ...) name__ = v_.name__;
-//# define X_class_DH_member_move_assign_v_(type__, name__, ...) name__ = std::move(v_.name__);
-
-# define UseDataXtBase(TypeName__, Xt__, Base__) \
-DEC_MemberEnum(E_idx, Xt__); \
-Xt__(X_classMember); \
-Sz typeID() const override { return TypeID_t<TypeName__>::id; } \
-void output(O& o) const override { Base__::output(o); o Xt__(X_leftShiftName); } \
-void input(I& i) override { Base__::input(i); i Xt__(X_rightShiftName); } \
-void deepCopyFrom(DeepCopier& dc, Base const& v_) override { Base__::deepCopyFrom(dc, v_); TypeName__ const& v = dynamic_cast<TypeName__ const&>(v_); Xt__(X_deepCopyFrom); }
-
-# define UseDataXt(TypeName__, Xt__) UseDataXtBase(TypeName__, Xt__, Base)
-# define UseDataBase(TypeName__, Base__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base__)
-# define UseData(TypeName__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base)
-
 namespace detail {
+    constexpr static size_t customTypeBeginNum = static_cast<size_t>(E_type::e_basicType) + 1;
+    constexpr static size_t customTypeNum = static_cast<size_t>(E_type::e_customType) - customTypeBeginNum;
+    using PFN_VoidPtrCreator = Base * (*)();
+    inline std::array<PFN_VoidPtrCreator, customTypeNum> all_custom_creator_pfn;
+
     template <typename T> constexpr bool trivially_copyable =
         std::is_trivially_copyable_v<std::remove_cvref_t<T>>
         &&
@@ -320,31 +298,39 @@ namespace detail {
 /* =======================  实现各类数据二进制输入输出 ===================== */
 
     /* ======================= 基本类型 ===================== */
-inline O& operator<<(O& s, const u8 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const u16& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const u32& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const u64& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const i8 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const i16& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const i32& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const i64& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const f32& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const f64& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const ch & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
-inline O& operator<<(O& s, const bl & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const u8  & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const u16 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const u32 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const u64 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const i8  & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const i16 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const i32 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const i64 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const f32 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const f64 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const ch  & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const chw & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const ch8 & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const ch16& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const ch32& v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
+inline O& operator<<(O& s, const bl  & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
 
-inline I& operator>>(I& s,       u8 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       u16& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       u32& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       u64& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       i8 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       i16& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       i32& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       i64& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       f32& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       f64& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       ch & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
-inline I& operator>>(I& s,       bl & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       u8  & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       u16 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       u32 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       u64 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       i8  & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       i16 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       i32 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       i64 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       f32 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       f64 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       ch  & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       chw & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       ch8 & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       ch16& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       ch32& v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
+inline I& operator>>(I& s,       bl  & v) { s.s.read(reinterpret_cast<char*>(&v), sizeof(v)); return s; }
 
 template<typename T> std::enable_if_t<std::is_enum_v<T>, O&> operator<<(O& o, T const& v) {
     o << reinterpret_cast<Sz const&>(v);
@@ -505,7 +491,6 @@ template<size_t N> inline O& operator<<(O& o, std::bitset<N>const& v) {
     }
     return o;
 }
-
 template<typename T, typename...Args> inline I& operator>>(I& i, std::vector<T, Args...>& v) {
     detail::readSpan<T>(i, v); return i;
 }
@@ -663,7 +648,6 @@ namespace detail {
             Sz typeID;
             i >> typeID;
             void* voidPtr = create_custom_type_from_typeID(typeID);
-        # if (RTTI_ENABLED)
             Base* basePtr = static_cast<Base*>(voidPtr);
             v = dynamic_cast<T*>(basePtr);
             if (v == nullptr) {
@@ -676,10 +660,6 @@ namespace detail {
                     << "Actual: " << actualName << " (ID: " << typeID << ")";
                 throw std::runtime_error(ss.str());
             }
-        # else
-            // 没有RTTI 只能强转 该如何判断它是否能赋值给该类型指针 假设全是单继承, 没有RTTI如何判断子类与基类关系?
-            v = reinterpret_cast<T*>(voidPtr);
-        # endif
         }
         else {
             v = new T{};
@@ -908,18 +888,22 @@ template<typename... Args> inline I& operator>>(I& i, std::tuple<Args...>& v) {
 
 /* ======================================= 深拷贝 ======================================= */
 
-inline void deepCopy(DeepCopier&, u8& dstV, u8  const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, u16& dstV, u16 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, u32& dstV, u32 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, u64& dstV, u64 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, i8& dstV, i8  const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, i16& dstV, i16 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, i32& dstV, i32 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, i64& dstV, i64 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, f32& dstV, f32 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, f64& dstV, f64 const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, ch& dstV, ch  const& srcV) { dstV = srcV; }
-inline void deepCopy(DeepCopier&, bl& dstV, bl  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u8  & dstV, u8  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u16 & dstV, u16 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u32 & dstV, u32 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, u64 & dstV, u64 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i8  & dstV, i8  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i16 & dstV, i16 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i32 & dstV, i32 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, i64 & dstV, i64 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, f32 & dstV, f32 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, f64 & dstV, f64 const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, ch  & dstV, ch  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, chw & dstV, ch  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, ch8 & dstV, ch  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, ch16& dstV, ch  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, ch32& dstV, ch  const& srcV) { dstV = srcV; }
+inline void deepCopy(DeepCopier&, bl  & dstV, bl  const& srcV) { dstV = srcV; }
 
 template <typename T> inline std::enable_if_t<std::is_enum_v<T>, void> deepCopy(DeepCopier&, T& dstV, const T& srcV) { dstV = srcV; }
 
@@ -1146,3 +1130,234 @@ template<typename T> inline void deepCopy(DeepCopier& dc, T& dstV, T const& srcV
     }
 }
 
+
+// =================================== 类型描述 ===================================
+    // 麻溜 用于类型描述的Token
+struct maliu {
+# define Xt_maliu_template(X__) \
+    X__(vector , vector ,  1, ) \
+    X__(array  , array  ,  2, ) \
+    X__(string , string ,  0, ) \
+    X__(bitset , bitset ,  1, ) \
+    X__(deque  , deque  ,  1, ) \
+    X__(list   , list   ,  1, ) \
+    X__(flist  , flist  ,  1, ) \
+    X__(set    , set    ,  1, ) \
+    X__(uset   , uset   ,  1, ) \
+    X__(map    , map    ,  2, ) \
+    X__(umap   , umap   ,  2, ) \
+    X__(sptr   , sptr   ,  1, ) \
+    X__(wptr   , wptr   ,  1, ) \
+    X__(uptr   , uptr   ,  1, ) \
+    X__(opt    , opt    ,  1, ) \
+    X__(path   , path   ,  0, ) \
+    X__(atomic , atomic ,  1, ) \
+    X__(variant, variant, -1, ) \
+    X__(tuple  , tuple  , -1, ) \
+
+# define X_enumMember( type, name, ...) name ,
+    enum E {
+        unknonw,
+        bg, // 类型描述开始符 相当于模板类的左括号
+        ed, // 类型描述结束   相当于模板类的右括号
+        Xt_maliu_template(X_enumMember)
+        Xt_BasicType(X_enumMember)
+        ptr,
+        voidPtr,
+        cst,
+        dur,
+        timepoint,
+        base,
+        Xt_CustomType(X_enumMember)
+        e_numMax,
+    };
+# undef X_enumMember
+}; // struct maliu 
+
+namespace detail {
+
+    template <size_t... Ns>
+    constexpr auto concat_arrays(const MaliuTokenArr<Ns>&... arrays) {
+        constexpr size_t total_size = (Ns + ... + 0);
+        MaliuTokenArr<total_size> result{};
+        size_t index = 0;
+        ((std::copy_n(arrays.begin(), Ns, result.begin() + index), index += Ns), ...);
+        return result;
+    }
+
+    template <typename T, size_t N>
+    constexpr auto make_token_array(const T (&arr)[N]) {
+        MaliuTokenArr<N> result{};
+        std::copy_n(arr, N, result.begin());
+        return result;
+    }
+
+    template <size_t N>
+    constexpr auto make_token_array(const MaliuTokenArr<N>& arr) {
+        return arr;
+    }
+
+}
+
+
+template<typename... Args> struct TypeDesc;
+template<> struct TypeDesc<u8  > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::u8   }; };
+template<> struct TypeDesc<u16 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::u16  }; };
+template<> struct TypeDesc<u32 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::u32  }; };
+template<> struct TypeDesc<u64 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::u64  }; };
+template<> struct TypeDesc<i8  > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::i8   }; };
+template<> struct TypeDesc<i16 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::i16  }; };
+template<> struct TypeDesc<i32 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::i32  }; };
+template<> struct TypeDesc<i64 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::i64  }; };
+template<> struct TypeDesc<f32 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::f32  }; };
+template<> struct TypeDesc<f64 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::f64  }; };
+template<> struct TypeDesc<ch  > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::ch   }; };
+template<> struct TypeDesc<chw > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::chw  }; };
+template<> struct TypeDesc<ch8 > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::ch8  }; };
+template<> struct TypeDesc<ch16> { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::ch16 }; };
+template<> struct TypeDesc<ch32> { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::ch32 }; };
+template<> struct TypeDesc<bl  > { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::bl   }; };
+
+template<typename Rep, typename Period>
+struct TypeDesc<std::chrono::duration<Rep, Period>> { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::dur }; };
+
+template<typename Clock, typename Duration>
+struct TypeDesc<std::chrono::time_point<Clock, Duration>> { static inline constexpr auto v = MaliuTokenArr<1>{ maliu::timepoint }; };
+
+template<typename T, typename... Args> struct TypeDesc<std::vector<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::vector}, TypeDesc<T>::v);
+};
+
+template<typename T, typename... Args> struct TypeDesc<std::basic_string<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::string}, TypeDesc<T>::v);
+};
+
+template<typename T, Sz N> struct TypeDesc<std::array<T, N>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<2>{maliu::E::array, N}, TypeDesc<T>::v);
+};
+
+template<Sz N> struct TypeDesc<std::bitset<N>> { static inline constexpr auto v = MaliuTokenArr<2>{ maliu::E::bitset, N }; };
+
+template<typename T, typename... Args> struct TypeDesc<std::deque<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::deque}, TypeDesc<T>::v);
+};
+
+template<typename T, typename... Args> struct TypeDesc<std::list<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::list}, TypeDesc<T>::v);
+};
+
+template<typename T, typename... Args> struct TypeDesc<std::forward_list<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::flist}, TypeDesc<T>::v);
+};
+
+template<typename T, typename... Args> struct TypeDesc<std::set<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::set}, TypeDesc<T>::v);
+};
+
+template<typename T, typename... Args> struct TypeDesc<std::unordered_set<T, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::uset}, TypeDesc<T>::v);
+};
+
+template<typename K, typename V, typename... Args> struct TypeDesc<std::map<K, V, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::map}, TypeDesc<K>::v, TypeDesc<V>::v);
+};
+
+template<typename K, typename V, typename... Args> struct TypeDesc<std::unordered_map<K, V, Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::umap}, TypeDesc<K>::v, TypeDesc<V>::v);
+};
+
+template<typename T> struct TypeDesc<Sptr<T>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::sptr}, TypeDesc<T>::v);
+};
+
+template<typename T> struct TypeDesc<Wptr<T>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::wptr}, TypeDesc<T>::v);
+};
+
+template<typename T> struct TypeDesc<Uptr<T>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::uptr}, TypeDesc<T>::v);
+};
+
+template<typename T> struct TypeDesc<std::optional<T>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::opt}, TypeDesc<T>::v);
+};
+
+template<> struct TypeDesc<std::filesystem::path> {
+    static inline constexpr auto v = MaliuTokenArr<1>{ maliu::E::path };
+};
+
+template<typename T> struct TypeDesc<std::atomic<T>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::atomic}, TypeDesc<T>::v);
+};
+
+template<typename... Args> struct TypeDesc<std::variant<Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::variant}, detail::concat_arrays(TypeDesc<Args>::v...), MaliuTokenArr<1>{maliu::E::ed});
+};
+
+template<typename... Args> struct TypeDesc<std::tuple<Args...>> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::tuple}, detail::concat_arrays(TypeDesc<Args>::v...), MaliuTokenArr<1>{maliu::E::ed});
+};
+
+template<> struct TypeDesc<Base> {
+    static inline constexpr auto v = MaliuTokenArr<1>{maliu::E::base};
+};
+
+template<typename T> struct TypeDesc<T*> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::ptr}, TypeDesc<T>::v);
+};
+template<typename T> struct TypeDesc<T const> {
+    static inline constexpr auto v = detail::concat_arrays(MaliuTokenArr<1>{maliu::E::cst}, TypeDesc<T>::v);
+};
+template<> struct TypeDesc<void*> {
+    static inline constexpr auto v = MaliuTokenArr<1>{maliu::E::voidPtr};
+};
+
+# define X_CustomTypeDesc(type, name) template<> struct TypeDesc<name> { static inline constexpr auto v = MaliuTokenArr<1>{maliu::E::name}; };
+Xt_CustomType(X_CustomTypeDesc)
+# undef X_CustomTypeDesc
+
+template<typename... Types> struct TypesDesc { static inline constexpr auto v = detail::concat_arrays(TypeDesc<Types>::v...); };
+
+namespace detail {
+    constexpr static inline size_t maliuCustomTypeBegin = static_cast<size_t>(maliu::base + 1);
+    constexpr static inline size_t maliuCustomTypeNum = static_cast<size_t>(maliu::e_numMax) - maliuCustomTypeBegin;
+    inline std::array<std::vector<MaliuToken>, maliuCustomTypeNum> all_custom_type_desc;
+}   // namespace detail
+
+
+# define X_classMember(type__, name__    , ...) type__ name__ = __VA_ARGS__;
+# define DEC_MemberEnum(name__, Xt__, ...) enum name__{ Xt__(X_enumClassMember) e_maxCount };
+# define X_enumClassMember(     type__, name__    , ...) e_##name__,
+# define X_leftShiftName(type__, name__, ...) << name__
+# define X_rightShiftName(type__, name__, ...) >> name__
+# define X_deepCopyFrom(type__, name__, ...) deepCopy(dc, name__, v.name__);
+# define X_comma_decltypeName(type__, name__, ...) , decltype(name__)
+
+//# define X_class_DH_member_copy_v_(type__, name__, ...) , name__(v_.name__)
+//# define X_class_DH_member_move_v_(type__, name__, ...) , name__(std::move(v_.name__))
+//# define X_class_DH_member_assign_v_(type__, name__, ...) name__ = v_.name__;
+//# define X_class_DH_member_move_assign_v_(type__, name__, ...) name__ = std::move(v_.name__);
+
+# define UseDataXtBase(TypeName__, Xt__, Base__) \
+DEC_MemberEnum(E_idx, Xt__); \
+Xt__(X_classMember); \
+Sz typeID() const override { return TypeID_t<TypeName__>::id; } \
+void output(O& o) const override { Base__::output(o); o Xt__(X_leftShiftName); } \
+void input(I& i) override { Base__::input(i); i Xt__(X_rightShiftName); } \
+void deepCopyFrom(DeepCopier& dc, Base const& v_) override { Base__::deepCopyFrom(dc, v_); TypeName__ const& v = dynamic_cast<TypeName__ const&>(v_); Xt__(X_deepCopyFrom); }\
+static constexpr inline auto desc = TypesDesc<Base__ Xt__(X_comma_decltypeName)>::v;\
+std::span<MaliuToken const> getDesc() override {return desc;}
+
+# define UseDataXt(TypeName__, Xt__) UseDataXtBase(TypeName__, Xt__, Base)
+# define UseDataBase(TypeName__, Base__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base__)
+# define UseData(TypeName__) UseDataXtBase(TypeName__, Xt_##TypeName__, Base)
+
+template<typename T> Base* custom_create() { return new T{}; }
+inline std::map<type_info const*, Sz> typeInfo2TypeID;
+# define X_reg_custom(type, name) detail::all_custom_creator_pfn[TypeID_t<name>::id - detail::customTypeBeginNum] = custom_create<name>; typeInfo2TypeID[&typeid(name)] = TypeID_t<name>::id;
+
+/*
+    自定义类型的指针的反序列化,必须发生在初始化之后.
+    否则,为了消除声明依赖而设立的all_custom_creator_pfn还未被初始化.必然报错.
+*/
+# define INIT_StreamPunk() Xt_CustomType(X_reg_custom)
