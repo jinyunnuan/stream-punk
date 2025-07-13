@@ -79,14 +79,21 @@
             char8_t
             char16_t
             char32_t
-        遗留问题: timepoint 还有 dur 的类型参数没做描述
     待办:
-        遗留问题: timepoint 还有 dur 的类型参数没做描述
+        遗留问题:
+            timepoint 还有 dur 的类型参数没做描述
 
-        v0.1.3 实现查询
+        v0.1.3 实现增删改查
+            在类内,按路径选取
+            对容器,按条件选取,按条件过滤之后的结果是一个容器的子集
+            对选取的结果, 统一地 获取数据/增/删/改
+
+            设计语言 maliu
+            代码->maliu
+            maliu->执行
 
         v0.2.0 数据版本管理
-
+            数据快照+数据修改流
         v0.3.0 实现与 JS     互通
         v0.3.1 实现与 TS     互通
         v0.3.2 实现与 Python 互通
@@ -164,11 +171,12 @@ Xt_BasicType(X__) \
 Xt_CustomType(X__) \
 
 # define X_using(oldName, newName) using newName = oldName;
-Xt_BasicType(X_using);
-# undef X_using
-
 # define X_using_struct(oldName, newName) using newName = struct oldName;
+
+Xt_BasicType(X_using);
 Xt_CustomType(X_using_struct);
+
+# undef X_using
 # undef X_using_struct
 
 // 表示长度的类型, 用来放入序列中
@@ -274,8 +282,9 @@ struct TypeID_t<newName>{\
     constexpr inline static E_type kind = E_type::kind__;\
 };
 # define X_DEF_TypeID_basic(type,newName) X_DEF_TypeID_kind(type, newName, e_basicType);
-Xt_BasicType(X_DEF_TypeID_basic);
 # define X_DEF_TypeID_custom(type,newName) X_DEF_TypeID_kind(type, newName, e_customType);
+
+Xt_BasicType(X_DEF_TypeID_basic);
 Xt_CustomType(X_DEF_TypeID_custom);
 
 # undef X_DEF_TypeID_custom
@@ -292,10 +301,10 @@ namespace detail {
         std::is_trivially_copyable_v<std::remove_cvref_t<T>>
         &&
         !std::is_pointer_v<std::remove_cvref_t<T>>
-        ;
+    ;
 } // namespace detail
 
-/* =======================  实现各类数据二进制输入输出 ===================== */
+/* ======================= 实现各类数据二进制输入输出 ===================== */
 
     /* ======================= 基本类型 ===================== */
 inline O& operator<<(O& s, const u8  & v) { s.s.write(reinterpret_cast<char const*>(&v), sizeof(v)); return s; }
@@ -1133,7 +1142,7 @@ template<typename T> inline void deepCopy(DeepCopier& dc, T& dstV, T const& srcV
 
 // =================================== 类型描述 ===================================
     // 麻溜 用于类型描述的Token
-struct maliu {
+namespace maliu {
 # define Xt_maliu_template(X__) \
     X__(vector , vector ,  1, ) \
     X__(array  , array  ,  2, ) \
@@ -1155,7 +1164,7 @@ struct maliu {
     X__(variant, variant, -1, ) \
     X__(tuple  , tuple  , -1, ) \
 
-# define X_enumMember( type, name, ...) name ,
+    # define X_enumMember( type, name, ...) name ,
     enum E {
         unknonw,
         bg, // 类型描述开始符 相当于模板类的左括号
@@ -1171,32 +1180,17 @@ struct maliu {
         Xt_CustomType(X_enumMember)
         e_numMax,
     };
-# undef X_enumMember
-}; // struct maliu 
+    # undef X_enumMember
+}; // namespace maliu 
 
 namespace detail {
-
-    template <size_t... Ns>
-    constexpr auto concat_arrays(const MaliuTokenArr<Ns>&... arrays) {
+    template <size_t... Ns> constexpr auto concat_arrays(const MaliuTokenArr<Ns>&... arrays) {
         constexpr size_t total_size = (Ns + ... + 0);
         MaliuTokenArr<total_size> result{};
         size_t index = 0;
         ((std::copy_n(arrays.begin(), Ns, result.begin() + index), index += Ns), ...);
         return result;
     }
-
-    template <typename T, size_t N>
-    constexpr auto make_token_array(const T (&arr)[N]) {
-        MaliuTokenArr<N> result{};
-        std::copy_n(arr, N, result.begin());
-        return result;
-    }
-
-    template <size_t N>
-    constexpr auto make_token_array(const MaliuTokenArr<N>& arr) {
-        return arr;
-    }
-
 }
 
 
@@ -1361,3 +1355,7 @@ inline std::map<type_info const*, Sz> typeInfo2TypeID;
     否则,为了消除声明依赖而设立的all_custom_creator_pfn还未被初始化.必然报错.
 */
 # define INIT_StreamPunk() Xt_CustomType(X_reg_custom)
+
+
+// =============================== 查询 ===============================
+

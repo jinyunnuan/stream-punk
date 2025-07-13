@@ -6,6 +6,7 @@
 */
 # define Xt_CustomType(X__) \
 X__(Test , Test) \
+X__(Test2 , Test2) \
 X__(MQTT , MQTT) \
 X__(PointerDemo, PointerDemo) \
 X__(ContainerDemo, ContainerDemo) \

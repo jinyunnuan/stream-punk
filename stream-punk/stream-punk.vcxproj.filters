@@ -64,7 +64,4 @@
       <UniqueIdentifier>{e64730be-abf2-4cf0-9455-fbb5525aba64}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="README.md" />
-  </ItemGroup>
 </Project>

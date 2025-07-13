@@ -167,9 +167,6 @@
     <ClInclude Include="StreamPunk.hpp" />
     <ClInclude Include="unit_test.hpp" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="README.md" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
