@@ -97,7 +97,7 @@ int main() {
 | **智能指针**     | shared_ptr, unique_ptr, weak_ptr 原生支持                                |
 | **时间类型**     | chrono::duration, chrono::time_point                                    |
 | **文件系统**     | filesystem::path 完整支持                                                |
-| **高级类型**     | variant, optional, atomic, tuple, any                                   |
+| **高级类型**     | variant, optional, atomic, tuple                                   |
 | **特殊类型**     | 仅序列化: initializer_list, span , string_view               |
 
 ### 核心特性

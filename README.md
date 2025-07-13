@@ -99,7 +99,7 @@ int main() {
 | **Smart Pointers**  | shared_ptr, unique_ptr, weak_ptr (native support)                               |
 | **Time Types**      | chrono::duration, chrono::time_point                                           |
 | **Filesystem**      | filesystem::path (full support)                                                |
-| **Advanced Types**  | variant, optional, atomic, tuple, any                                         |
+| **Advanced Types**  | variant, optional, atomic, tuple                                         |
 | **Special Types**   | Serialization only: initializer_list, span, string_view            |
 
 ### Core Features
