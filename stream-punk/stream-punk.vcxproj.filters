@@ -50,6 +50,9 @@
     <ClCompile Include="unit_test_v0.1.2.cpp">
       <Filter>unit_test</Filter>
     </ClCompile>
+    <ClCompile Include="unit_test_v0.2.0.cpp">
+      <Filter>unit_test</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="StreamPunk.hpp" />
